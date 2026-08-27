@@ -47,7 +47,7 @@ reach that host, which it needs regardless of this plugin.
 Run this on the host (see above):
 
 ```bash
-herdr plugin install pgebheim/lilbox/contrib/herdr
+herdr plugin install lilco-dev/lilbox/contrib/herdr
 ```
 
 Developing against a checkout instead:

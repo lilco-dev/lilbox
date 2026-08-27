@@ -56,7 +56,7 @@ A host with hardware virtualization — either:
 
 **Intel Macs are not supported.** microsandbox publishes no `darwin-x86_64`
 runtime bundle and its HVF backend is aarch64-only, so there is nothing to fall
-back to. See [#62](https://github.com/pgebheim/lilbox/issues/62).
+back to. See [#62](https://github.com/lilco-dev/lilbox/issues/62).
 
 > **macOS is shipped but lightly travelled.** Every release builds an
 > `aarch64-apple-darwin` binary against the real HVF backend, but the boot path
@@ -523,7 +523,7 @@ them; lilbox isolates but has no multiplexer.
 worktree its own microVM and destroys it with the worktree.
 
 ```bash
-herdr plugin install pgebheim/lilbox/contrib/herdr   # on the lilbox host
+herdr plugin install lilco-dev/lilbox/contrib/herdr   # on the lilbox host
 herdr plugin action invoke lilbox.agent    # boot this worktree's box, run the agent in it
 ```
 

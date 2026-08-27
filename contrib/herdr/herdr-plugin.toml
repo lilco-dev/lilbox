@@ -1,7 +1,7 @@
 # lilbox plugin for herdr (https://herdr.dev/docs/plugins/).
 #
 #   herdr plugin link   /path/to/lilbox/contrib/herdr     # local development
-#   herdr plugin install pgebheim/lilbox/contrib/herdr    # from GitHub
+#   herdr plugin install lilco-dev/lilbox/contrib/herdr    # from GitHub
 #
 # Every entrypoint routes through ./bin/lilbox-herdr. Herdr runs plugin commands
 # as a bare argv with no shell expansion and with the *plugin directory* as the
