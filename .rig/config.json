@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/agent-rig/rig/main/rig.schema.json",
   "project": {
     "name": "lilbox",
-    "repo": "pgebheim/lilbox"
+    "repo": "lilco-dev/lilbox"
   },
   "runtime": {
     "packageManager": "none"
@@ -22,9 +22,9 @@
   },
   "tracker": {
     "provider": "github",
-    "team": "pgebheim",
+    "team": "lilco-dev",
     "board": {
-      "owner": "pgebheim",
+      "owner": "lilco-dev",
       "projectNumber": 6,
       "statusField": "Status",
       "statusOptions": {
