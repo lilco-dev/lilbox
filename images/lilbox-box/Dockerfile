@@ -7,7 +7,7 @@
 # Auth (joining the tailnet as a tagged ephemeral node) is layered on top by
 # `lilbox new` — it injects an ephemeral, tag:lilbox-vm auth key and runs
 # `tailscale up`. This image only bakes in the binaries + the bring-up hook.
-FROM alpine:3.20
+FROM alpine:3.24
 
 # tailscale ships both `tailscale` and `tailscaled` in one apk package.
 # iproute2 gives a real `ip` (busybox's lacks `tuntap`); ca-certificates for
