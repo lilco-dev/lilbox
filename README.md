@@ -402,7 +402,8 @@ listen = "0.0.0.0:2222"
 The username routes, exe.dev-style:
 
 ```bash
-ssh -t -p 2222 new@host            # create a box and land in its shell
+ssh -t -p 2222 new@host            # create a box (random name) and land in its shell
+ssh -t -p 2222 new+my-box@host     # create a named box and attach
 ssh -t -p 2222 my-box@host         # attach to a running box
 ssh -p 2222 host ls                # management commands (same grammar as below)
 ssh -p 2222 host my-box -- htop    # run one command inside a box

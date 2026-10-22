@@ -182,7 +182,8 @@ fn route_exec(
 }
 
 /// A bare shell request routes on the username: an existing box name attaches,
-/// `new` creates-and-attaches, anything else is an error.
+/// `new` creates-and-attaches (random name), `new+<name>` creates a named box,
+/// anything else is an error.
 fn route_shell(
     username: &str,
     has_box: &dyn Fn(&str) -> bool,
@@ -190,11 +191,21 @@ fn route_shell(
     if username == "new" {
         return Ok(vec!["new".to_string(), "--attach".to_string()]);
     }
+    if let Some(name) = username.strip_prefix("new+") {
+        if name.is_empty() {
+            return Err("usage: ssh new+<name>@<host>".into());
+        }
+        return Ok(vec![
+            "new".to_string(),
+            name.to_string(),
+            "--attach".to_string(),
+        ]);
+    }
     if has_box(username) {
         return Ok(vec!["ssh".to_string(), username.to_string()]);
     }
     Err(format!(
-        "no box named '{username}' — ssh <box>@<host> to attach, ssh new@<host> to create, ssh <host> ls to list"
+        "no box named '{username}' — ssh <box>@<host> to attach, ssh new@<host> or new+<name>@<host> to create, ssh <host> ls to list"
     ))
 }
 
@@ -600,6 +611,17 @@ mod tests {
     fn shell_routes_new_to_create_and_attach() {
         let argv = route_shell("new", &|_| false).unwrap();
         assert_eq!(argv, ["new", "--attach"]);
+    }
+
+    #[test]
+    fn shell_routes_new_with_name() {
+        let argv = route_shell("new+my-box", &|_| false).unwrap();
+        assert_eq!(argv, ["new", "my-box", "--attach"]);
+    }
+
+    #[test]
+    fn shell_rejects_empty_new_name() {
+        assert!(route_shell("new+", &|_| false).is_err());
     }
 
     #[test]
