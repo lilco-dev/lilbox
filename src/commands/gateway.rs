@@ -102,10 +102,12 @@ pub(crate) fn authorize(
     if !is_subcommand(&argv[0]) && has_box(&argv[0]) {
         let name = argv.remove(0);
         let mut rewritten = vec!["ssh".to_string(), name];
-        if !argv.is_empty() {
+        // `ssh <box> -- <cmd>` needs the separator; respect one the caller
+        // already typed rather than doubling it.
+        if !argv.is_empty() && argv[0] != "--" {
             rewritten.push("--".to_string());
-            rewritten.append(&mut argv);
         }
+        rewritten.append(&mut argv);
         argv = rewritten;
     }
     let cli = Cli::try_parse_from(std::iter::once("lilbox".to_string()).chain(argv))
@@ -357,6 +359,18 @@ mod tests {
     #[test]
     fn box_name_with_trailing_tokens_runs_them_in_the_box() {
         let command = authorize("my-box uname -a", &|name| name == "my-box").unwrap();
+        match command {
+            Command::Ssh(args) => {
+                assert_eq!(args.name, "my-box");
+                assert_eq!(args.cmd, ["uname", "-a"]);
+            }
+            other => panic!("expected Ssh, got {}", command_label(&other)),
+        }
+    }
+
+    #[test]
+    fn explicit_separator_is_not_doubled() {
+        let command = authorize("my-box -- uname -a", &|name| name == "my-box").unwrap();
         match command {
             Command::Ssh(args) => {
                 assert_eq!(args.name, "my-box");
