@@ -166,6 +166,10 @@ pub(crate) enum TemplateCommand {
 #[derive(Args)]
 pub(crate) struct NewArgs {
     pub(crate) name: Option<String>,
+    /// exe.dev grammar: `new --name=foo` (positional still works; clap
+    /// rejects giving both).
+    #[arg(long = "name", conflicts_with = "name")]
+    pub(crate) name_flag: Option<String>,
     #[arg(long)]
     pub(crate) template: Option<String>,
     #[arg(long)]

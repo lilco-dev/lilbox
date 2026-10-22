@@ -72,7 +72,7 @@ pub(crate) fn resolve_image_choice(
 }
 
 pub(crate) async fn cmd_new(app: &App, args: NewArgs, opts: NewOptions) -> Result<i32> {
-    let name = match args.name {
+    let name = match args.name.or(args.name_flag) {
         Some(name) => name,
         None => random_name(app)?,
     };
