@@ -388,6 +388,8 @@ move:
 ```bash
 ssh -t internal-host new --tailscale            # create a box and land in its shell
 ssh -t internal-host new --tailscale --image node my-box
+ssh -t internal-host my-box                     # attach to a running box (direct attach)
+ssh internal-host my-box -- htop                # run one command inside it
 ssh internal-host ls
 ssh internal-host rm my-box
 ```
@@ -397,6 +399,12 @@ typed after the host into `$SSH_ORIGINAL_COMMAND` and runs a fixed program;
 `lilbox gateway` reads that string, parses it with the *same* CLI grammar, and
 dispatches it through a strict allowlist. No daemon, no open port, no local
 lilbox install.
+
+**Direct attach:** a leading token that isn't a subcommand but names an
+existing box is shorthand for `ssh <box>` — so after `new` prints
+`my-box ready (attach with: ssh -p 2222 <host> my-box)`, that command is all
+you need. Real subcommands win the name: a box literally named `ls` stays
+reachable via `ssh internal-host ssh ls`.
 
 **Grammar is identical to the local CLI**, so the positional is the **box
 name**, not the image: `new --tailscale python` makes a box *named* `python`
