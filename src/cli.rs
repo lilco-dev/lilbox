@@ -95,10 +95,13 @@ pub(crate) enum Command {
     Url { name: String },
     /// Run Claude Code in a microVM against a mounted workspace.
     Agent(AgentArgs),
-    /// SSH forced-command entry point: dispatch $SSH_ORIGINAL_COMMAND through a
-    /// strict allowlist. Wire it as `command="lilbox gateway"` in an
-    /// authorized_keys entry so `ssh host new --tailscale ...` provisions a box.
-    Gateway,
+    /// SSH gateway: with `--listen` (or `[gateway] listen` in config), act as
+    /// a standalone SSH server — the exe.dev-style UX: `ssh <box>@host`
+    /// attaches, `ssh new@host` creates, `ssh host ls` runs allowlisted
+    /// commands. Without it, act as an SSH forced command dispatching
+    /// $SSH_ORIGINAL_COMMAND through a strict allowlist (wired as
+    /// `command="lilbox gateway"` in authorized_keys).
+    Gateway(GatewayArgs),
     /// Check the local runtime and Tailscale installation.
     Doctor,
     /// Generate a shell completion script.
@@ -191,6 +194,18 @@ pub(crate) struct NewArgs {
     /// image if needed). Implied by --tailnet-tag, or by [tailscale] auto = true.
     #[arg(long, visible_alias = "tailscale")]
     pub(crate) tailnet: bool,
+    /// Attach to a guest shell once the box is up. Used by the gateway server
+    /// for interactive sessions; local `lilbox ssh <box>` is the normal path.
+    #[arg(long, hide = true)]
+    pub(crate) attach: bool,
+}
+
+#[derive(Args)]
+pub(crate) struct GatewayArgs {
+    /// Listen as a standalone SSH server (e.g. 0.0.0.0:2222) instead of
+    /// reading $SSH_ORIGINAL_COMMAND. Defaults to [gateway] listen in config.
+    #[arg(long)]
+    pub(crate) listen: Option<String>,
 }
 
 #[derive(Args)]

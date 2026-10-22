@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use std::path::PathBuf;
 
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct Config {
@@ -22,6 +23,13 @@ pub(crate) struct GatewayConfig {
     /// picks one. Sits between the template image and the global `image`
     /// default, and only applies on the gateway path (see `commands::gateway`).
     pub(crate) image: Option<String>,
+    /// Listen address for `lilbox gateway` as a standalone SSH server (e.g.
+    /// "0.0.0.0:2222"). Set by `lilbox gateway --listen`; when absent (and no
+    /// flag), gateway runs as an SSH forced command.
+    pub(crate) listen: Option<String>,
+    /// authorized_keys-format file of client keys accepted by the gateway SSH
+    /// server. Default: ~/.config/lilbox/gateway_authorized_keys.
+    pub(crate) authorized_keys: Option<PathBuf>,
 }
 
 #[derive(Debug, Default, Deserialize)]

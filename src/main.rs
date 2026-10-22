@@ -2,6 +2,7 @@ mod app;
 mod cli;
 mod commands;
 mod config;
+mod gateway_server;
 mod logs;
 mod model;
 mod overlay;

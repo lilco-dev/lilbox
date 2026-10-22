@@ -2849,12 +2849,16 @@ dependencies = [
  "dirs",
  "flate2",
  "futures",
+ "libc",
  "microsandbox",
  "oci-client",
  "oci-spec 0.10.0",
+ "pty-process",
+ "rand 0.10.3",
  "rand 0.9.5",
  "reqwest",
  "rusqlite",
+ "russh",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -4168,6 +4172,16 @@ dependencies = [
  "syn 2.0.119",
  "version_check",
  "yansi",
+]
+
+[[package]]
+name = "pty-process"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f0cff49b5194f464ce14bfaef7d6dba180889934e9bfa37ca5f2528ea515c0b"
+dependencies = [
+ "rustix",
+ "tokio",
 ]
 
 [[package]]

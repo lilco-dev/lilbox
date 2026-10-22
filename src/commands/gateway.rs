@@ -74,7 +74,7 @@ fn command_label(command: &Command) -> &'static str {
         Command::Agent(_) => "agent",
         Command::Doctor => "doctor",
         Command::Completions { .. } => "completions",
-        Command::Gateway => "gateway",
+        Command::Gateway(_) => "gateway",
     }
 }
 
@@ -95,7 +95,19 @@ pub(crate) fn authorize(
     if original.trim().is_empty() {
         return Err(GatewayReject::Empty);
     }
-    let mut argv = shlex::split(original).ok_or(GatewayReject::Unshlexable)?;
+    let argv = shlex::split(original).ok_or(GatewayReject::Unshlexable)?;
+    if argv.is_empty() {
+        return Err(GatewayReject::Empty);
+    }
+    authorize_argv(argv, has_box).map(|(command, _)| command)
+}
+
+/// Split-argv form of [`authorize`], also returning the final argv (after any
+/// direct-attach rewrite) so the SSH server can re-exec lilbox with it.
+pub(crate) fn authorize_argv(
+    mut argv: Vec<String>,
+    has_box: &dyn Fn(&str) -> bool,
+) -> std::result::Result<(Command, Vec<String>), GatewayReject> {
     if argv.is_empty() {
         return Err(GatewayReject::Empty);
     }
@@ -110,10 +122,11 @@ pub(crate) fn authorize(
         rewritten.append(&mut argv);
         argv = rewritten;
     }
-    let cli = Cli::try_parse_from(std::iter::once("lilbox".to_string()).chain(argv))
-        .map_err(GatewayReject::Unparseable)?;
+    let cli =
+        Cli::try_parse_from(std::iter::once("lilbox".to_string()).chain(argv.iter().cloned()))
+            .map_err(GatewayReject::Unparseable)?;
     if allowed(&cli.command) {
-        Ok(cli.command)
+        Ok((cli.command, argv))
     } else {
         Err(GatewayReject::NotAllowed(command_label(&cli.command)))
     }
@@ -150,7 +163,19 @@ fn print_usage() {
     );
 }
 
-pub(crate) async fn cmd_gateway(app: &App) -> Result<i32> {
+pub(crate) async fn cmd_gateway(app: &App, args: crate::cli::GatewayArgs) -> Result<i32> {
+    let gateway_config = app.config()?.gateway;
+    let listen = args.listen.or(gateway_config.listen.clone());
+    if let Some(listen) = listen {
+        let keys = gateway_config
+            .authorized_keys
+            .unwrap_or_else(|| app.config_dir.join("gateway_authorized_keys"));
+        return crate::gateway_server::run(
+            app.db_path(),
+            crate::gateway_server::Options { listen, keys },
+        )
+        .await;
+    }
     let original = env::var("SSH_ORIGINAL_COMMAND").unwrap_or_default();
     let parsed = {
         let has_box = |name: &str| app.row(name).ok().flatten().is_some();
