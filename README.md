@@ -383,20 +383,59 @@ never attempts a join, even if a credential is present in the environment.
 ## Remote provisioning over SSH (`lilbox gateway`)
 
 Run boxes on a KVM host from a laptop that has nothing but `ssh` — the exe.dev
-move:
+move. Two ways to run it:
+
+### Standalone SSH server (recommended)
+
+`lilbox gateway --listen 0.0.0.0:2222` makes lilbox itself the SSH server — no
+second sshd instance, no root, no PAM/`authorized_keys` plumbing. Client keys
+live in `~/.config/lilbox/gateway_authorized_keys` (plain `algo base64
+[comment]` lines; overridable via `[gateway] authorized_keys`); the host key
+is generated on first run into the state dir.
+
+```toml
+# ~/.config/lilbox/config.toml — so a bare `lilbox gateway` listens
+[gateway]
+listen = "0.0.0.0:2222"
+```
+
+The username routes, exe.dev-style:
+
+```bash
+ssh -t -p 2222 new@host            # create a box (random name) and land in its shell
+ssh -t -p 2222 new+my-box@host     # create a named box and attach
+ssh -t -p 2222 lilbox@host new --name=my-box --image=node   # exe.dev grammar
+ssh -t -p 2222 my-box@host         # attach to a running box
+ssh -p 2222 host ls                # management commands (same grammar as below)
+ssh -p 2222 host my-box -- htop    # run one command inside a box
+```
+
+Channels are bridged to `lilbox` subprocesses (pty when the client allocates
+one, pipes otherwise), so interactive shells, window resize, and Ctrl-C behave
+as expected; exit status follows the child.
+
+### SSH forced command (no extra port)
+
+The alternative is an **SSH forced command** under the host's existing sshd:
+`sshd` puts whatever the client typed after the host into
+`$SSH_ORIGINAL_COMMAND` and runs a fixed program; `lilbox gateway` reads that
+string, parses it with the *same* CLI grammar, and dispatches it through a
+strict allowlist. No daemon, no open port, no local lilbox install.
 
 ```bash
 ssh -t internal-host new --tailscale            # create a box and land in its shell
 ssh -t internal-host new --tailscale --image node my-box
+ssh -t internal-host my-box                     # attach to a running box (direct attach)
+ssh internal-host my-box -- htop                # run one command inside it
 ssh internal-host ls
 ssh internal-host rm my-box
 ```
 
-The mechanism is an **SSH forced command**. `sshd` puts whatever the client
-typed after the host into `$SSH_ORIGINAL_COMMAND` and runs a fixed program;
-`lilbox gateway` reads that string, parses it with the *same* CLI grammar, and
-dispatches it through a strict allowlist. No daemon, no open port, no local
-lilbox install.
+**Direct attach:** a leading token that isn't a subcommand but names an
+existing box is shorthand for `ssh <box>` — so after `new` prints
+`my-box ready (attach with: ssh -p 2222 <host> my-box)`, that command is all
+you need. Real subcommands win the name: a box literally named `ls` stays
+reachable via `ssh internal-host ssh ls`.
 
 **Grammar is identical to the local CLI**, so the positional is the **box
 name**, not the image: `new --tailscale python` makes a box *named* `python`

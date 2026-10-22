@@ -31,3 +31,5 @@ oauthClientSecretEnv = "TS_OAUTH_CLIENT_SECRET"
 # README.md's "Remote provisioning over SSH" section.
 [gateway]
 image = "python"
+# listen = "0.0.0.0:2222"        # make a bare `lilbox gateway` an SSH server
+# authorized_keys = "..."        # default: ~/.config/lilbox/gateway_authorized_keys

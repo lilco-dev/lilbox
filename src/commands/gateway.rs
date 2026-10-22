@@ -1,7 +1,7 @@
 use std::env;
 
 use anyhow::Result;
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 
 use crate::app::App;
 use crate::cli::{Cli, Command};
@@ -74,7 +74,7 @@ fn command_label(command: &Command) -> &'static str {
         Command::Agent(_) => "agent",
         Command::Doctor => "doctor",
         Command::Completions { .. } => "completions",
-        Command::Gateway => "gateway",
+        Command::Gateway(_) => "gateway",
     }
 }
 
@@ -83,7 +83,15 @@ fn command_label(command: &Command) -> &'static str {
 /// `shlex`-split into an argv and handed straight to clap), so shell
 /// metacharacters like `;` or `&&` are inert literal tokens — they can only
 /// make parsing fail, never execute anything.
-pub(crate) fn authorize(original: &str) -> std::result::Result<Command, GatewayReject> {
+///
+/// exe.dev-style direct attach: when the leading token is not a subcommand but
+/// names an existing box (`has_box`), it is rewritten to `ssh <box> --
+/// <rest>`, so `ssh host my-box` lands in the box. Real subcommands always win
+/// — a box named `ls` stays reachable via `ssh host ssh ls`.
+pub(crate) fn authorize(
+    original: &str,
+    has_box: &dyn Fn(&str) -> bool,
+) -> std::result::Result<Command, GatewayReject> {
     if original.trim().is_empty() {
         return Err(GatewayReject::Empty);
     }
@@ -91,13 +99,44 @@ pub(crate) fn authorize(original: &str) -> std::result::Result<Command, GatewayR
     if argv.is_empty() {
         return Err(GatewayReject::Empty);
     }
-    let cli = Cli::try_parse_from(std::iter::once("lilbox".to_string()).chain(argv))
-        .map_err(GatewayReject::Unparseable)?;
+    authorize_argv(argv, has_box).map(|(command, _)| command)
+}
+
+/// Split-argv form of [`authorize`], also returning the final argv (after any
+/// direct-attach rewrite) so the SSH server can re-exec lilbox with it.
+pub(crate) fn authorize_argv(
+    mut argv: Vec<String>,
+    has_box: &dyn Fn(&str) -> bool,
+) -> std::result::Result<(Command, Vec<String>), GatewayReject> {
+    if argv.is_empty() {
+        return Err(GatewayReject::Empty);
+    }
+    if !is_subcommand(&argv[0]) && has_box(&argv[0]) {
+        let name = argv.remove(0);
+        let mut rewritten = vec!["ssh".to_string(), name];
+        // `ssh <box> -- <cmd>` needs the separator; respect one the caller
+        // already typed rather than doubling it.
+        if !argv.is_empty() && argv[0] != "--" {
+            rewritten.push("--".to_string());
+        }
+        rewritten.append(&mut argv);
+        argv = rewritten;
+    }
+    let cli =
+        Cli::try_parse_from(std::iter::once("lilbox".to_string()).chain(argv.iter().cloned()))
+            .map_err(GatewayReject::Unparseable)?;
     if allowed(&cli.command) {
-        Ok(cli.command)
+        Ok((cli.command, argv))
     } else {
         Err(GatewayReject::NotAllowed(command_label(&cli.command)))
     }
+}
+
+/// Is `token` a real subcommand (name or alias), per clap's own grammar?
+fn is_subcommand(token: &str) -> bool {
+    Cli::command()
+        .get_subcommands()
+        .any(|sub| sub.get_name() == token || sub.get_all_aliases().any(|a| a == token))
 }
 
 /// Process exit code for a rejected command — the contract an operator scripts
@@ -116,6 +155,7 @@ fn print_usage() {
     eprintln!(
         "lilbox gateway: run a lilbox command over SSH, e.g.\n  \
          ssh -t <host> new --tailscale            # create a box and drop into it\n  \
+         ssh -t <host> my-box                     # attach to a running box\n  \
          ssh -t <host> new --tailscale --image node my-box\n  \
          ssh <host> ls\n  \
          ssh <host> rm <box>\n\
@@ -123,9 +163,25 @@ fn print_usage() {
     );
 }
 
-pub(crate) async fn cmd_gateway(app: &App) -> Result<i32> {
+pub(crate) async fn cmd_gateway(app: &App, args: crate::cli::GatewayArgs) -> Result<i32> {
+    let gateway_config = app.config()?.gateway;
+    let listen = args.listen.or(gateway_config.listen.clone());
+    if let Some(listen) = listen {
+        let keys = gateway_config
+            .authorized_keys
+            .unwrap_or_else(|| app.config_dir.join("gateway_authorized_keys"));
+        return crate::gateway_server::run(
+            app.db_path(),
+            crate::gateway_server::Options { listen, keys },
+        )
+        .await;
+    }
     let original = env::var("SSH_ORIGINAL_COMMAND").unwrap_or_default();
-    match authorize(&original) {
+    let parsed = {
+        let has_box = |name: &str| app.row(name).ok().flatten().is_some();
+        authorize(&original, &has_box)
+    };
+    match parsed {
         Ok(Command::New(args)) => {
             let default_image = app.config()?.gateway.image;
             new::cmd_new(
@@ -134,6 +190,7 @@ pub(crate) async fn cmd_gateway(app: &App) -> Result<i32> {
                 new::NewOptions {
                     attach: true,
                     default_image,
+                    remote: true,
                 },
             )
             .await
@@ -166,9 +223,14 @@ pub(crate) async fn cmd_gateway(app: &App) -> Result<i32> {
 mod tests {
     use super::*;
 
+    /// No boxes exist: the plain parsing/allowlist behavior.
+    fn authorize_no_boxes(input: &str) -> std::result::Result<Command, GatewayReject> {
+        authorize(input, &|_| false)
+    }
+
     #[test]
     fn new_with_positional_name_and_tailscale_is_allowed() {
-        let command = authorize("new python --tailscale").unwrap();
+        let command = authorize_no_boxes("new python --tailscale").unwrap();
         match command {
             Command::New(args) => {
                 assert_eq!(args.name.as_deref(), Some("python"));
@@ -182,7 +244,7 @@ mod tests {
 
     #[test]
     fn new_with_only_tailscale_flag_is_allowed() {
-        let command = authorize("new --tailscale").unwrap();
+        let command = authorize_no_boxes("new --tailscale").unwrap();
         match command {
             Command::New(args) => {
                 assert!(args.name.is_none());
@@ -194,7 +256,7 @@ mod tests {
 
     #[test]
     fn new_with_image_flag_override_is_allowed() {
-        let command = authorize("new my-box --image node").unwrap();
+        let command = authorize_no_boxes("new my-box --image node").unwrap();
         match command {
             Command::New(args) => {
                 assert_eq!(args.name.as_deref(), Some("my-box"));
@@ -207,14 +269,20 @@ mod tests {
     #[test]
     fn read_only_commands_are_allowed() {
         for input in ["ls", "stat foo", "url foo", "logs foo"] {
-            assert!(authorize(input).is_ok(), "{input} should be allowed");
+            assert!(
+                authorize_no_boxes(input).is_ok(),
+                "{input} should be allowed"
+            );
         }
     }
 
     #[test]
     fn lifecycle_commands_are_allowed() {
         for input in ["ssh foo", "stop foo", "start foo", "restart foo", "rm foo"] {
-            assert!(authorize(input).is_ok(), "{input} should be allowed");
+            assert!(
+                authorize_no_boxes(input).is_ok(),
+                "{input} should be allowed"
+            );
         }
     }
 
@@ -236,7 +304,7 @@ mod tests {
             "gateway",
         ] {
             assert!(
-                matches!(authorize(input), Err(GatewayReject::NotAllowed(_))),
+                matches!(authorize_no_boxes(input), Err(GatewayReject::NotAllowed(_))),
                 "{input} should be NotAllowed"
             );
         }
@@ -248,25 +316,28 @@ mod tests {
         // subcommand, and the trailing `rm -rf /` are stray positionals. Either
         // way it fails to parse and is never dispatched as a valid `new`.
         assert!(matches!(
-            authorize("new; rm -rf /"),
+            authorize_no_boxes("new; rm -rf /"),
             Err(GatewayReject::Unparseable(_))
         ));
         assert!(matches!(
-            authorize("new ; rm -rf /"),
+            authorize_no_boxes("new ; rm -rf /"),
             Err(GatewayReject::Unparseable(_))
         ));
     }
 
     #[test]
     fn empty_or_whitespace_command_is_empty() {
-        assert!(matches!(authorize(""), Err(GatewayReject::Empty)));
-        assert!(matches!(authorize("   "), Err(GatewayReject::Empty)));
+        assert!(matches!(authorize_no_boxes(""), Err(GatewayReject::Empty)));
+        assert!(matches!(
+            authorize_no_boxes("   "),
+            Err(GatewayReject::Empty)
+        ));
     }
 
     #[test]
     fn unbalanced_quote_is_unshlexable() {
         assert!(matches!(
-            authorize("new \"unterminated"),
+            authorize_no_boxes("new \"unterminated"),
             Err(GatewayReject::Unshlexable)
         ));
     }
@@ -274,7 +345,7 @@ mod tests {
     #[test]
     fn unknown_flag_is_unparseable() {
         assert!(matches!(
-            authorize("ls --bogus-flag"),
+            authorize_no_boxes("ls --bogus-flag"),
             Err(GatewayReject::Unparseable(_))
         ));
     }
@@ -283,7 +354,7 @@ mod tests {
     fn missing_required_positional_is_unparseable() {
         // `rm` requires a box name.
         assert!(matches!(
-            authorize("rm"),
+            authorize_no_boxes("rm"),
             Err(GatewayReject::Unparseable(_))
         ));
     }
@@ -293,7 +364,58 @@ mod tests {
         // clap surfaces --help as an error kind; it must not fall through to a
         // dispatchable command.
         assert!(matches!(
-            authorize("new --help"),
+            authorize_no_boxes("new --help"),
+            Err(GatewayReject::Unparseable(_))
+        ));
+    }
+
+    #[test]
+    fn existing_box_name_attaches_directly() {
+        let command = authorize("my-box", &|name| name == "my-box").unwrap();
+        match command {
+            Command::Ssh(args) => {
+                assert_eq!(args.name, "my-box");
+                assert!(args.cmd.is_empty());
+            }
+            other => panic!("expected Ssh, got {}", command_label(&other)),
+        }
+    }
+
+    #[test]
+    fn box_name_with_trailing_tokens_runs_them_in_the_box() {
+        let command = authorize("my-box uname -a", &|name| name == "my-box").unwrap();
+        match command {
+            Command::Ssh(args) => {
+                assert_eq!(args.name, "my-box");
+                assert_eq!(args.cmd, ["uname", "-a"]);
+            }
+            other => panic!("expected Ssh, got {}", command_label(&other)),
+        }
+    }
+
+    #[test]
+    fn explicit_separator_is_not_doubled() {
+        let command = authorize("my-box -- uname -a", &|name| name == "my-box").unwrap();
+        match command {
+            Command::Ssh(args) => {
+                assert_eq!(args.name, "my-box");
+                assert_eq!(args.cmd, ["uname", "-a"]);
+            }
+            other => panic!("expected Ssh, got {}", command_label(&other)),
+        }
+    }
+
+    #[test]
+    fn subcommand_wins_over_same_named_box() {
+        // A box named `ls` does not shadow the `ls` command.
+        let command = authorize("ls", &|_| true).unwrap();
+        assert!(matches!(command, Command::Ls { .. }));
+    }
+
+    #[test]
+    fn unknown_name_without_a_box_stays_unparseable() {
+        assert!(matches!(
+            authorize("no-such-box", &|_| false),
             Err(GatewayReject::Unparseable(_))
         ));
     }
@@ -301,7 +423,7 @@ mod tests {
     // `Command` doesn't derive Debug, so `.unwrap_err()` won't compile; extract
     // the rejection by hand instead.
     fn reject(input: &str) -> GatewayReject {
-        match authorize(input) {
+        match authorize_no_boxes(input) {
             Ok(_) => panic!("expected '{input}' to be rejected"),
             Err(error) => error,
         }

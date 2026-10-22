@@ -31,6 +31,9 @@ pub(crate) struct NewOptions {
     /// Image to boot when neither `--image` nor a template picks one, taking
     /// precedence over the global `[image]` config default. Gateway-only.
     pub(crate) default_image: Option<String>,
+    /// Running under `lilbox gateway`: connection hints print the remote
+    /// (`ssh <host> <box>`) form, not the local CLI form.
+    pub(crate) remote: bool,
 }
 
 /// How `cmd_new` should source the box image, in precedence order. Pure so the
@@ -69,7 +72,7 @@ pub(crate) fn resolve_image_choice(
 }
 
 pub(crate) async fn cmd_new(app: &App, args: NewArgs, opts: NewOptions) -> Result<i32> {
-    let name = match args.name {
+    let name = match args.name.or(args.name_flag) {
         Some(name) => name,
         None => random_name(app)?,
     };
@@ -309,6 +312,9 @@ pub(crate) async fn cmd_new(app: &App, args: NewArgs, opts: NewOptions) -> Resul
         // print how to reach the box instead.
         match box_display_url(node.as_deref(), None) {
             Some(url) => println!("{name} ready at {url}"),
+            None if opts.remote => {
+                println!("{name} ready (attach with: {})", remote_ssh_hint(&name))
+            }
             None => println!("{name} ready (reach it with: lilbox ssh {name})"),
         }
         return Ok(0);
@@ -316,6 +322,19 @@ pub(crate) async fn cmd_new(app: &App, args: NewArgs, opts: NewOptions) -> Resul
 
     println!("  lilbox exec {name} -- <cmd>\n  lilbox ssh {name}\n  lilbox expose {name}");
     Ok(0)
+}
+
+/// Copy-pasteable remote attach hint for the gateway path. sshd sets
+/// `SSH_CONNECTION` to "client_ip client_port server_ip server_port", which
+/// pins the address *and* port the client actually reached us on; without it
+/// (tests, non-ssh invocation) fall back to the generic form.
+fn remote_ssh_hint(name: &str) -> String {
+    let connection = env::var("SSH_CONNECTION").unwrap_or_default();
+    let fields: Vec<&str> = connection.split_whitespace().collect();
+    match fields.as_slice() {
+        [_, _, server_ip, server_port] => format!("ssh -p {server_port} {server_ip} {name}"),
+        _ => format!("ssh <host> {name}"),
+    }
 }
 
 /// Join a freshly-created box to the tailnet, returning its MagicDNS node name
