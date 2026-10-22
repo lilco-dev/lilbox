@@ -1,6 +1,6 @@
 mod agent;
 mod cp;
-mod gateway;
+pub(crate) mod gateway;
 mod lifecycle;
 mod net;
 mod new;
@@ -16,7 +16,18 @@ use crate::sandbox;
 
 pub(crate) async fn dispatch(app: &App, command: Command) -> Result<i32> {
     match command {
-        Command::New(args) => return new::cmd_new(app, args, new::NewOptions::default()).await,
+        Command::New(args) => {
+            let attach = args.attach;
+            return new::cmd_new(
+                app,
+                args,
+                new::NewOptions {
+                    attach,
+                    ..new::NewOptions::default()
+                },
+            )
+            .await;
+        }
         Command::Ls { json } => view::ls(app, json).await?,
         Command::Gc => lifecycle::gc(app).await?,
         Command::Templates => view::templates(app)?,
@@ -46,7 +57,7 @@ pub(crate) async fn dispatch(app: &App, command: Command) -> Result<i32> {
         Command::Stat { name } => view::stat(app, name).await?,
         Command::Url { name } => net::url(app, name)?,
         Command::Agent(args) => return agent::cmd_agent(app, args).await,
-        Command::Gateway => return gateway::cmd_gateway(app).await,
+        Command::Gateway(args) => return gateway::cmd_gateway(app, args).await,
         Command::Doctor => view::doctor(app)?,
         // Handled in main() before App::new() so completion generation never
         // initializes user state; do not move this into dispatch.
