@@ -18,6 +18,12 @@ if pgrep -f "wrap-desktop run" >/dev/null 2>&1; then
   exit 0
 fi
 
+# tailscale serve on the host preserves the browser's Host header, and voxl
+# refuses names it wasn't started with (DNS-rebinding guard). Scoping to the
+# .ts.net suffix covers `<host>.<tailnet>.ts.net` however the box is exposed,
+# without opening the door to arbitrary names.
+export WRAP_DESKTOP_VOXL_ARGS="${WRAP_DESKTOP_VOXL_ARGS:-} --allowed-hosts=.ts.net"
+
 # setsid + nohup so the Xvfb/XFCE/Chrome/voxl tree survives the provisioning
 # session that spawned it; logs land in /var/log for `lilbox logs`-style
 # debugging via `lilbox ssh <box> -- tail -f /var/log/wrap-desktop.log`.
