@@ -1,0 +1,6 @@
+{
+  "image": "ghcr.io/tobi/wrapvm:desktop",
+  "memory": "4G",
+  "port": 6080,
+  "description": "Agent desktop box: wrapvm's XFCE + persistent Chrome (CDP :9223) with the voxl browser viewer on :6080 — expose it and drive the desktop from your tailnet."
+}

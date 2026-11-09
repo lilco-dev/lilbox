@@ -195,8 +195,10 @@ logged to `~/.local/state/lilbox/logs/<box>-setup.log` (the box is kept for insp
 
 Shipped starters: **`python-dev`**, **`node-dev`**, **`rust-dev`**, **`go-dev`**,
 **`data-science`** & **`ml-pytorch`** (JupyterLab), **`fullstack-web`** (Node +
-Python), **`base-debian`**, and **`agent-sandbox`** — run `lilbox templates` for
-the full list, or add your own with `lilbox template add`.
+Python), **`base-debian`**, **`agent-sandbox`**, and **`desktop-vm`** (wrapvm's
+XFCE + Chrome agent desktop with the voxl viewer on :6080 — amd64 only) —
+run `lilbox templates` for the full list, or add your own with
+`lilbox template add`.
 
 ## How publishing works
 
