@@ -24,10 +24,11 @@ fi
 setsid nohup "$WRAP_DESKTOP" run >/var/log/wrap-desktop.log 2>&1 &
 
 # Wait for the voxl viewer to accept connections before declaring success —
-# `lilbox expose` right after `new` should hit a live :6080.
+# `lilbox expose` right after `new` should hit a live :6080. Any HTTP response
+# counts: voxl answers 401 until you sign in, so `curl -f` would never pass.
 n=0
 while [ "$n" -lt 60 ]; do
-  if curl -sf -o /dev/null http://127.0.0.1:6080/ 2>/dev/null; then
+  if curl -s -o /dev/null http://127.0.0.1:6080/ 2>/dev/null; then
     echo "desktop-vm ready: voxl viewer on :6080 (expose with 'lilbox expose <box>')"
     exit 0
   fi
