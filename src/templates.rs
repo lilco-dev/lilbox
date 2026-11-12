@@ -40,6 +40,10 @@ pub(crate) fn builtin_template(name: &str) -> Option<Template> {
             include_str!("../templates/agent-sandbox/template.json"),
             include_str!("../templates/agent-sandbox/setup.sh"),
         ),
+        "desktop-vm" => (
+            include_str!("../templates/desktop-vm/template.json"),
+            include_str!("../templates/desktop-vm/setup.sh"),
+        ),
         _ => return None,
     };
     Some(Template {
@@ -95,6 +99,7 @@ mod tests {
             "fullstack-web",
             "base-debian",
             "agent-sandbox",
+            "desktop-vm",
         ] {
             let t = builtin_template(name).unwrap_or_else(|| panic!("missing builtin '{name}'"));
             assert!(t.manifest.image.is_some(), "builtin '{name}' has no image");

@@ -341,8 +341,15 @@ mod herdr_vsock_tests {
     use std::os::unix::net::UnixListener;
 
     fn bound_socket() -> (std::path::PathBuf, UnixListener) {
-        let path =
-            std::env::temp_dir().join(format!("lilbox-herdr-vsock-test-{}", std::process::id()));
+        // Unique per call: tests run in parallel in one process, so a bare pid
+        // path races (one test's remove_file lands between the other's remove
+        // and bind -> AddrInUse flake).
+        static SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "lilbox-herdr-vsock-test-{}-{}",
+            std::process::id(),
+            SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
         let _ = std::fs::remove_file(&path);
         let listener = UnixListener::bind(&path).unwrap();
         (path, listener)
