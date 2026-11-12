@@ -186,8 +186,9 @@ pub(crate) async fn resolve_join_credential(
     cfg: &TailscaleConfig,
     flag_tag: Option<&str>,
     box_name: &str,
+    stored: Option<(&str, &str)>,
 ) -> Result<Option<JoinCredential>> {
-    match resolve_join_mode(cfg, flag_tag, |name| env::var(name).ok()) {
+    match resolve_join_mode(cfg, flag_tag, |name| env::var(name).ok(), stored) {
         JoinMode::Mint {
             tag,
             client_id,
@@ -339,12 +340,14 @@ pub(crate) enum JoinMode {
 }
 
 /// OAuth client (mint an ephemeral key) takes precedence over the static
-/// `authKeyEnv` path; falls back to it when no OAuth client is configured or
-/// its secret isn't resolvable, and skips entirely when neither resolves.
+/// `authKeyEnv` path. Among OAuth sources the config + env-secret pair wins
+/// over the credential stored by `lilbox auth login`; the static key is the
+/// last resort, and when nothing resolves the join is skipped.
 pub(crate) fn resolve_join_mode(
     cfg: &TailscaleConfig,
     flag_tag: Option<&str>,
     env: impl Fn(&str) -> Option<String>,
+    stored: Option<(&str, &str)>,
 ) -> JoinMode {
     let tag = resolve_tag(flag_tag, cfg.tag.as_deref());
     if let Some(client_id) = cfg.oauth_client_id.as_deref() {
@@ -359,6 +362,15 @@ pub(crate) fn resolve_join_mode(
                 client_secret,
             };
         }
+    }
+    if let Some((client_id, client_secret)) = stored
+        && !client_secret.is_empty()
+    {
+        return JoinMode::Mint {
+            tag,
+            client_id: client_id.to_string(),
+            client_secret: client_secret.to_string(),
+        };
     }
     let key_env = cfg
         .auth_key_env
@@ -377,6 +389,24 @@ pub(crate) fn oauth_token_form(id: &str, secret: &str) -> [(&'static str, String
         ("client_secret", secret.to_string()),
         ("grant_type", "client_credentials".to_string()),
     ]
+}
+
+/// Verify an OAuth client credential by requesting (and discarding) an access
+/// token. Used by `lilbox auth login`; unlike [`mint_ephemeral_key`] this
+/// creates no auth key.
+pub(crate) async fn check_oauth_client(client_id: &str, client_secret: &str) -> Result<()> {
+    let response = reqwest::Client::new()
+        .post(format!("{TAILSCALE_API_BASE}/oauth/token"))
+        .form(&oauth_token_form(client_id, client_secret))
+        .send()
+        .await
+        .context("could not reach Tailscale OAuth endpoint")?;
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        bail!("tailscale rejected the credential ({status}): {body}");
+    }
+    Ok(())
 }
 
 /// JSON body for `POST /tailnet/-/keys`: a reusable=false, ephemeral,
@@ -725,9 +755,12 @@ mod tests {
     #[test]
     fn resolve_join_mode_mints_when_oauth_id_and_secret_present() {
         let config = cfg(None, None, Some("client-123"), None);
-        let mode = resolve_join_mode(&config, None, |name| {
-            (name == DEFAULT_OAUTH_SECRET_ENV).then(|| "shh".to_string())
-        });
+        let mode = resolve_join_mode(
+            &config,
+            None,
+            |name| (name == DEFAULT_OAUTH_SECRET_ENV).then(|| "shh".to_string()),
+            None,
+        );
         match mode {
             JoinMode::Mint {
                 client_id,
@@ -744,18 +777,24 @@ mod tests {
     #[test]
     fn resolve_join_mode_uses_custom_secret_env_name() {
         let config = cfg(None, None, Some("client-123"), Some("MY_SECRET"));
-        let mode = resolve_join_mode(&config, None, |name| {
-            (name == "MY_SECRET").then(|| "shh".to_string())
-        });
+        let mode = resolve_join_mode(
+            &config,
+            None,
+            |name| (name == "MY_SECRET").then(|| "shh".to_string()),
+            None,
+        );
         assert!(matches!(mode, JoinMode::Mint { .. }));
     }
 
     #[test]
     fn resolve_join_mode_static_env_when_only_auth_key_env_resolves() {
         let config = cfg(None, Some("MY_KEY"), None, None);
-        let mode = resolve_join_mode(&config, None, |name| {
-            (name == "MY_KEY").then(|| "tskey-auth-static".to_string())
-        });
+        let mode = resolve_join_mode(
+            &config,
+            None,
+            |name| (name == "MY_KEY").then(|| "tskey-auth-static".to_string()),
+            None,
+        );
         match mode {
             JoinMode::StaticEnv { key_env } => assert_eq!(key_env, "MY_KEY"),
             _ => panic!("expected StaticEnv"),
@@ -765,30 +804,98 @@ mod tests {
     #[test]
     fn resolve_join_mode_skips_when_neither_resolves() {
         let config = cfg(None, None, None, None);
-        let mode = resolve_join_mode(&config, None, |_| None);
+        let mode = resolve_join_mode(&config, None, |_| None, None);
         assert!(matches!(mode, JoinMode::Skip));
     }
 
     #[test]
     fn resolve_join_mode_oauth_takes_precedence_over_static_env() {
         let config = cfg(None, Some("MY_KEY"), Some("client-123"), None);
-        let mode = resolve_join_mode(&config, None, |name| match name {
-            "MY_KEY" => Some("tskey-auth-static".to_string()),
-            n if n == DEFAULT_OAUTH_SECRET_ENV => Some("shh".to_string()),
-            _ => None,
-        });
+        let mode = resolve_join_mode(
+            &config,
+            None,
+            |name| match name {
+                "MY_KEY" => Some("tskey-auth-static".to_string()),
+                n if n == DEFAULT_OAUTH_SECRET_ENV => Some("shh".to_string()),
+                _ => None,
+            },
+            None,
+        );
         assert!(matches!(mode, JoinMode::Mint { .. }));
     }
 
     #[test]
     fn resolve_join_mode_falls_back_to_static_env_when_oauth_secret_empty() {
         let config = cfg(None, Some("MY_KEY"), Some("client-123"), None);
-        let mode = resolve_join_mode(&config, None, |name| match name {
-            "MY_KEY" => Some("tskey-auth-static".to_string()),
-            n if n == DEFAULT_OAUTH_SECRET_ENV => Some(String::new()),
-            _ => None,
-        });
+        let mode = resolve_join_mode(
+            &config,
+            None,
+            |name| match name {
+                "MY_KEY" => Some("tskey-auth-static".to_string()),
+                n if n == DEFAULT_OAUTH_SECRET_ENV => Some(String::new()),
+                _ => None,
+            },
+            None,
+        );
         assert!(matches!(mode, JoinMode::StaticEnv { .. }));
+    }
+
+    #[test]
+    fn resolve_join_mode_mints_from_stored_credential() {
+        let config = cfg(None, None, None, None);
+        let mode = resolve_join_mode(&config, None, |_| None, Some(("k-stored", "shh")));
+        match mode {
+            JoinMode::Mint {
+                client_id,
+                client_secret,
+                ..
+            } => {
+                assert_eq!(client_id, "k-stored");
+                assert_eq!(client_secret, "shh");
+            }
+            _ => panic!("expected Mint"),
+        }
+    }
+
+    #[test]
+    fn resolve_join_mode_config_env_beats_stored() {
+        let config = cfg(None, None, Some("client-123"), None);
+        let mode = resolve_join_mode(
+            &config,
+            None,
+            |name| (name == DEFAULT_OAUTH_SECRET_ENV).then(|| "env-secret".to_string()),
+            Some(("k-stored", "stored-secret")),
+        );
+        match mode {
+            JoinMode::Mint {
+                client_id,
+                client_secret,
+                ..
+            } => {
+                assert_eq!(client_id, "client-123");
+                assert_eq!(client_secret, "env-secret");
+            }
+            _ => panic!("expected Mint"),
+        }
+    }
+
+    #[test]
+    fn resolve_join_mode_stored_beats_static_env() {
+        let config = cfg(None, Some("MY_KEY"), None, None);
+        let mode = resolve_join_mode(
+            &config,
+            None,
+            |name| (name == "MY_KEY").then(|| "tskey-auth-static".to_string()),
+            Some(("k-stored", "shh")),
+        );
+        assert!(matches!(mode, JoinMode::Mint { .. }));
+    }
+
+    #[test]
+    fn resolve_join_mode_ignores_empty_stored_secret() {
+        let config = cfg(None, None, None, None);
+        let mode = resolve_join_mode(&config, None, |_| None, Some(("k-stored", "")));
+        assert!(matches!(mode, JoinMode::Skip));
     }
 
     #[test]

@@ -1,4 +1,5 @@
 mod agent;
+mod auth;
 mod cp;
 pub(crate) mod gateway;
 mod lifecycle;
@@ -31,6 +32,7 @@ pub(crate) async fn dispatch(app: &App, command: Command) -> Result<i32> {
         Command::Ls { json } => view::ls(app, json).await?,
         Command::Gc => lifecycle::gc(app).await?,
         Command::Templates => view::templates(app)?,
+        Command::Auth(args) => auth::cmd_auth(app, args.command).await?,
         Command::Template(args) => template::cmd_template(app, args.command)?,
         Command::Provision { name } => lifecycle::provision_cmd(app, name).await?,
         Command::Exec(args) => return sandbox::exec(app, args).await,

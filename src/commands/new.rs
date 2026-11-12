@@ -93,9 +93,15 @@ pub(crate) async fn cmd_new(app: &App, args: NewArgs, opts: NewOptions) -> Resul
     let mut minted_key: Option<String> = None;
     let mut joins_tailnet = false;
     if want_tailnet {
-        let mode = resolve_join_mode(&config.tailscale, args.tailnet_tag.as_deref(), |name| {
-            env::var(name).ok()
-        });
+        let stored = crate::auth::stored_oauth(app);
+        let mode = resolve_join_mode(
+            &config.tailscale,
+            args.tailnet_tag.as_deref(),
+            |name| env::var(name).ok(),
+            stored
+                .as_ref()
+                .map(|(id, secret)| (id.as_str(), secret.as_str())),
+        );
         joins_tailnet = match mode {
             JoinMode::Mint {
                 tag: mint_tag,
