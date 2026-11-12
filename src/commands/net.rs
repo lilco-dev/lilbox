@@ -139,12 +139,146 @@ pub(crate) fn unexpose(app: &App, name: String) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn url(app: &App, name: String) -> Result<()> {
+pub(crate) async fn url(app: &App, name: String) -> Result<()> {
     let row = app.require_row(&name)?;
+    let base = row
+        .display_url()
+        .or_else(|| row.host_port.map(|p| format!("http://127.0.0.1:{p}/")));
+    // A template can declare url_command: run it in the guest and rewrite the
+    // loopback URL it prints (often token-bearing) onto the box's reachable
+    // address. A stopped box or a failed command falls back to the plain URL.
+    if let Some(cmd) = row
+        .template
+        .as_deref()
+        .and_then(|t| app.template(t).ok())
+        .and_then(|t| t.manifest.url_command)
+        && let Ok(sandbox) = connect_box(app, &name, false).await
+        && let Some(url) = guest_sign_in_url(&sandbox, &cmd, base.as_deref()).await
+    {
+        println!("{url}");
+        return Ok(());
+    }
     println!(
         "{}",
         row.display_url()
             .ok_or_else(|| anyhow!("'{name}' is not exposed (lilbox expose {name})"))?
     );
     Ok(())
+}
+
+/// Run a template's `url_command` in the guest and rewrite the URL it prints
+/// onto `base` (the box's MagicDNS/expose URL, or the host port-forward).
+/// Best-effort: any failure reads as `None` so callers can fall back.
+pub(crate) async fn guest_sign_in_url(
+    sandbox: &microsandbox::Sandbox,
+    url_command: &str,
+    base: Option<&str>,
+) -> Option<String> {
+    let output = sandbox.exec("/bin/sh", ["-c", url_command]).await.ok()?;
+    if !output.status().success {
+        return None;
+    }
+    rewrite_guest_url(&output.stdout().ok()?, base)
+}
+
+/// Extract the first http(s) URL in `raw` and, when its authority is a guest
+/// loopback address and `base` is known, swap scheme+authority for `base`,
+/// preserving the path and query (which carry e.g. voxl's sign-in token).
+pub(crate) fn rewrite_guest_url(raw: &str, base: Option<&str>) -> Option<String> {
+    let start = raw
+        .find("http://")
+        .map(|i| (i, "http://"))
+        .into_iter()
+        .chain(raw.find("https://").map(|i| (i, "https://")))
+        .min_by_key(|(i, _)| *i)?;
+    let (i, scheme) = start;
+    let rest = &raw[i + scheme.len()..];
+    let end = rest
+        .find(|c: char| c.is_whitespace() || c == '"' || c == '\'')
+        .unwrap_or(rest.len());
+    let authority_path = &rest[..end];
+    let (authority, path_query) = match authority_path.find('/') {
+        Some(s) => (&authority_path[..s], &authority_path[s..]),
+        None => (authority_path, "/"),
+    };
+    let host = authority
+        .trim_start_matches('[')
+        .split([']', ':', '/'])
+        .next()
+        .unwrap_or(authority);
+    let loopback = matches!(host, "127.0.0.1" | "localhost" | "::1");
+    match (loopback, base) {
+        (true, Some(base)) => Some(format!("{}{}", base.trim_end_matches('/'), path_query)),
+        _ => Some(format!("{scheme}{authority_path}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rewrite_guest_url;
+
+    #[test]
+    fn rewrites_loopback_onto_magicdns_keeping_token() {
+        assert_eq!(
+            rewrite_guest_url(
+                "http://127.0.0.1:6080/?token=abc123",
+                Some("https://mydesk.tail1234.ts.net/")
+            ),
+            Some("https://mydesk.tail1234.ts.net/?token=abc123".into())
+        );
+    }
+
+    #[test]
+    fn rewrites_onto_host_port_forward() {
+        assert_eq!(
+            rewrite_guest_url(
+                "http://localhost:6080/?token=t",
+                Some("http://127.0.0.1:40547/")
+            ),
+            Some("http://127.0.0.1:40547/?token=t".into())
+        );
+    }
+
+    #[test]
+    fn finds_url_embedded_in_chatter() {
+        assert_eq!(
+            rewrite_guest_url(
+                "view http://127.0.0.1:6080/?token=x (via port publish)\n",
+                Some("https://b.tail1234.ts.net/")
+            ),
+            Some("https://b.tail1234.ts.net/?token=x".into())
+        );
+    }
+
+    #[test]
+    fn leaves_non_loopback_urls_alone() {
+        assert_eq!(
+            rewrite_guest_url(
+                "https://example.com/app?t=1",
+                Some("https://b.tail1234.ts.net/")
+            ),
+            Some("https://example.com/app?t=1".into())
+        );
+    }
+
+    #[test]
+    fn keeps_loopback_when_no_base_known() {
+        assert_eq!(
+            rewrite_guest_url("http://127.0.0.1:6080/?token=x", None),
+            Some("http://127.0.0.1:6080/?token=x".into())
+        );
+    }
+
+    #[test]
+    fn no_url_in_output_is_none() {
+        assert_eq!(rewrite_guest_url("not a url", Some("https://b/")), None);
+    }
+
+    #[test]
+    fn bare_authority_gets_root_path() {
+        assert_eq!(
+            rewrite_guest_url("http://127.0.0.1:6080", Some("https://b.ts.net")),
+            Some("https://b.ts.net/".into())
+        );
+    }
 }
