@@ -28,6 +28,8 @@ pub(crate) enum Command {
     Gc,
     /// List available templates.
     Templates,
+    /// Manage the stored tailnet OAuth credential.
+    Auth(AuthArgs),
     /// Manage user-installed templates.
     Template(TemplateArgs),
     /// Re-run a box template's setup script.
@@ -139,6 +141,32 @@ pub(crate) enum ImageCommand {
         #[arg(long)]
         tag: String,
     },
+}
+
+#[derive(Args)]
+pub(crate) struct AuthArgs {
+    #[command(subcommand)]
+    pub(crate) command: AuthCommand,
+}
+
+#[derive(Subcommand)]
+pub(crate) enum AuthCommand {
+    /// Store a tailscale OAuth client credential (prompts when flags are absent).
+    Login {
+        /// OAuth client ID (prompted for when omitted).
+        #[arg(long)]
+        client_id: Option<String>,
+        /// Read the OAuth client secret from stdin instead of prompting.
+        #[arg(long)]
+        client_secret_stdin: bool,
+        /// Store without verifying the credential against the Tailscale API.
+        #[arg(long)]
+        no_verify: bool,
+    },
+    /// Remove the stored credential.
+    Logout,
+    /// Show which tailscale credential source is in effect (never prints secrets).
+    Status,
 }
 
 #[derive(Args)]

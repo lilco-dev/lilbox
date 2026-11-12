@@ -20,7 +20,13 @@ pub(crate) async fn join(app: &App, name: String, tailnet_tag: Option<String>) -
         return Ok(());
     }
     let config = app.config()?;
-    let credential = resolve_join_credential(&config.tailscale, tailnet_tag.as_deref(), &name)
+    let stored = crate::auth::stored_oauth(app);
+    let credential = resolve_join_credential(
+        &config.tailscale,
+        tailnet_tag.as_deref(),
+        &name,
+        stored.as_ref().map(|(id, secret)| (id.as_str(), secret.as_str())),
+    )
         .await?
         .ok_or_else(|| {
             anyhow!(

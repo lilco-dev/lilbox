@@ -51,6 +51,7 @@ fn command_label(command: &Command) -> &'static str {
         Command::Gc => "gc",
         Command::Templates => "templates",
         Command::Template(_) => "template",
+        Command::Auth(_) => "auth",
         Command::Provision { .. } => "provision",
         Command::Exec(_) => "exec",
         Command::Ssh(_) => "ssh",

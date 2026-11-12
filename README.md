@@ -333,12 +333,23 @@ oauthClientSecretEnv = "TS_OAUTH_CLIENT_SECRET"  # optional, this is the default
   Nothing is cached: a new key is minted for every `lilbox new`.
 - **`authKeyEnv` (static fallback).** Names an environment variable holding a
   long-lived, pre-generated auth key (default `TS_AUTHKEY`). Used only when
-  `oauthClientId` isn't configured, or its secret env doesn't resolve.
+  no OAuth credential resolves.
 
-**Precedence:** OAuth (`oauthClientId` + resolvable secret) > `authKeyEnv` >
-skip the tailnet join entirely. Any minting failure (bad credentials, network
-error, malformed response) only prints a warning and skips the join — it
-never fails `lilbox new`.
+**`lilbox auth` (stored credential).** `lilbox auth login` prompts for an
+OAuth client ID and secret (or `--client-id` + `--client-secret-stdin` for
+scripts), verifies them against the Tailscale API (`--no-verify` skips), and
+stores them in `~/.config/lilbox/auth.json` (mode 0600) — separate from
+`config.toml`, which stays non-secret. `lilbox auth status` shows which
+credential source is in effect (never prints secrets); `lilbox auth logout`
+removes the file. A stored credential lets non-interactive callers — above
+all the gateway daemon, which has no shell environment — join boxes to the
+tailnet.
+
+**Precedence:** OAuth via config env (`oauthClientId` + resolvable secret) >
+OAuth via `lilbox auth login` > `authKeyEnv` > skip the tailnet join
+entirely. Any minting failure (bad credentials, network error, malformed
+response) only prints a warning and skips the join — it never fails
+`lilbox new`.
 
 **Security note:** joining the tailnet requires `tailscaled` in the guest to
 run `tailscale up --auth-key=...` itself — there's no way to join a node from
