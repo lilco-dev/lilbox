@@ -33,6 +33,10 @@ pub(crate) struct TemplateManifest {
     pub(crate) cpus: Option<u8>,
     pub(crate) memory: Option<String>,
     pub(crate) port: Option<u16>,
+    /// Guest command that prints the app's sign-in URL (e.g. a token-bearing
+    /// loopback URL). `lilbox url` and the tail end of `lilbox new` run it and
+    /// rewrite the host onto the box's reachable address.
+    pub(crate) url_command: Option<String>,
     #[serde(default)]
     pub(crate) description: String,
 }

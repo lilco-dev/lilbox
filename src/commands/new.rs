@@ -301,6 +301,20 @@ pub(crate) async fn cmd_new(app: &App, args: NewArgs, opts: NewOptions) -> Resul
     or_cleanup(insert, || stop_and_remove(&name)).await?;
     println!("box {name} is up ({image}, guest :{guest_port})");
 
+    // Templates that declare url_command get their sign-in URL printed here —
+    // a token minted inside the guest (voxl's, say) is otherwise undiscoverable
+    // until someone runs `lilbox url`. Best-effort: never fail `new` over it.
+    if let Some(cmd) = template
+        .as_ref()
+        .and_then(|t| t.manifest.url_command.as_deref())
+    {
+        let base = box_display_url(node.as_deref(), None)
+            .or_else(|| Some(format!("http://127.0.0.1:{host_port}/")));
+        if let Some(url) = super::net::guest_sign_in_url(&sandbox, cmd, base.as_deref()).await {
+            println!("{name} app url: {url}");
+        }
+    }
+
     if opts.attach {
         // Attach AFTER the commit point and OUTSIDE the interrupt select above,
         // so Ctrl-C in the interactive session ends the shell rather than

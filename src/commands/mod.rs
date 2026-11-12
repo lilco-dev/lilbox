@@ -55,7 +55,7 @@ pub(crate) async fn dispatch(app: &App, command: Command) -> Result<i32> {
         Command::Volumes => view::volumes(app).await?,
         Command::Image(args) => view::image(args.command).await?,
         Command::Stat { name } => view::stat(app, name).await?,
-        Command::Url { name } => net::url(app, name)?,
+        Command::Url { name } => net::url(app, name).await?,
         Command::Agent(args) => return agent::cmd_agent(app, args).await,
         Command::Gateway(args) => return gateway::cmd_gateway(app, args).await,
         Command::Doctor => view::doctor(app)?,
