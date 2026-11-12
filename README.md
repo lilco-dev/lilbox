@@ -174,10 +174,17 @@ post-boot setup script. It's a directory `<name>/`:
 
 ```
 <name>/
-  template.json      # image + defaults (cpus/memory/port)
+  template.json      # image + defaults (cpus/memory/port/url_command)
   setup.sh           # optional: run inside the box after boot (idempotent)
   Dockerfile         # optional: build the image locally instead of pulling
 ```
+
+Optional `url_command` in `template.json` names a guest command that prints
+the app's sign-in URL (e.g. `"url_command": "/opt/wrap/bin/wrap-desktop url"`).
+`lilbox new` runs it once the box is up, and `lilbox url <box>` re-runs it on
+demand; the loopback URL it prints is rewritten onto the box's reachable
+address (tailnet node, expose URL, or host port-forward), preserving any
+path/query — which is where sign-in tokens live.
 
 ```bash
 lilbox templates                      # list templates (repo starters + your own)
