@@ -139,7 +139,7 @@ pub(crate) fn unexpose(app: &App, name: String) -> Result<()> {
     Ok(())
 }
 
-pub(crate) async fn url(app: &App, name: String) -> Result<()> {
+pub(crate) async fn url(app: &App, name: String, open: bool) -> Result<()> {
     let row = app.require_row(&name)?;
     let base = row
         .display_url()
@@ -147,7 +147,7 @@ pub(crate) async fn url(app: &App, name: String) -> Result<()> {
     // A template can declare url_command: run it in the guest and rewrite the
     // loopback URL it prints (often token-bearing) onto the box's reachable
     // address. A stopped box or a failed command falls back to the plain URL.
-    if let Some(cmd) = row
+    let resolved = if let Some(cmd) = row
         .template
         .as_deref()
         .and_then(|t| app.template(t).ok())
@@ -155,14 +155,15 @@ pub(crate) async fn url(app: &App, name: String) -> Result<()> {
         && let Ok(sandbox) = connect_box(app, &name, false).await
         && let Some(url) = guest_sign_in_url(&sandbox, &cmd, base.as_deref()).await
     {
-        println!("{url}");
-        return Ok(());
-    }
-    println!(
-        "{}",
+        url
+    } else {
         row.display_url()
             .ok_or_else(|| anyhow!("'{name}' is not exposed (lilbox expose {name})"))?
-    );
+    };
+    println!("{resolved}");
+    if open && let Err(error) = open::that_detached(&resolved) {
+        eprintln!("warning: could not open a browser here ({error}) — use the URL above");
+    }
     Ok(())
 }
 
