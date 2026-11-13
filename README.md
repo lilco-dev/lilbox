@@ -17,6 +17,16 @@ Each box is a genuine microVM — it boots its own Linux kernel in ~1–2s, not 
 container sharing yours. `lilbox exec` reports a **different kernel version than
 the host**, because it *is* a different kernel.
 
+<p align="center">
+  <video src="https://raw.githubusercontent.com/lilco-dev/lilbox/main/docs/media/launch.mp4"
+         autoplay muted loop playsinline controls width="840"></video>
+</p>
+
+*One command → a desktop VM on your tailnet: `lilbox new --template desktop-vm`
+boots wrapvm's XFCE + Chrome desktop, joins the tailnet as its own node, and
+prints the voxl viewer's sign-in URL. ([GIF version](docs/media/launch.gif) for
+contexts that don't play video.)*
+
 ## How lilbox compares
 
 Most dev sandboxing falls into three buckets — containers, the raw microVM
