@@ -94,7 +94,13 @@ pub(crate) enum Command {
     /// Show detailed box information.
     Stat { name: String },
     /// Print a box's published URL.
-    Url { name: String },
+    Url {
+        name: String,
+        /// Open the URL in the browser, too (no-op with a warning on hosts
+        /// without a browser opener, e.g. headless servers).
+        #[arg(long)]
+        open: bool,
+    },
     /// Run Claude Code in a microVM against a mounted workspace.
     Agent(AgentArgs),
     /// SSH gateway: with `--listen` (or `[gateway] listen` in config), act as
