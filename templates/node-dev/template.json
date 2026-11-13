@@ -1,5 +1,5 @@
 {
-  "image": "node:22-alpine",
+  "image": "node:26-alpine",
   "memory": "2G",
   "port": 3000,
   "description": "Node + npm + git"

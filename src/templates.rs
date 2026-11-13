@@ -106,7 +106,7 @@ mod tests {
         let go = builtin_template("go-dev").unwrap();
         assert_eq!(
             go.manifest.image.as_deref(),
-            Some("docker.io/library/golang:1.23-bookworm")
+            Some("docker.io/library/golang:1.27-bookworm")
         );
         assert!(go.setup.unwrap().contains("gopls"));
 
