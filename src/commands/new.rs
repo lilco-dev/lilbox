@@ -16,8 +16,8 @@ use crate::tailscale::{
     wants_tailnet,
 };
 use crate::util::{
-    DEFAULT_GUEST_PORT, DEFAULT_IMAGE, alloc_host_port, now, or_cleanup, parse_duration,
-    parse_memory, random_name,
+    DEFAULT_GUEST_PORT, DEFAULT_IMAGE, alloc_host_port, bold, cyan, dim, green, now, or_cleanup,
+    parse_duration, parse_memory, random_name,
 };
 
 /// Internal knobs for `cmd_new` that aren't user-facing CLI flags. The local
@@ -228,14 +228,17 @@ pub(crate) async fn cmd_new(app: &App, args: NewArgs, opts: NewOptions) -> Resul
         Some(args.volume.unwrap_or_else(|| format!("lilbox-{name}-home")))
     };
     let host_port = alloc_host_port()?;
-    println!(
-        "booting {image} microVM as {name}{} ...",
-        if volume.is_some() {
-            " (persistent)"
-        } else {
-            ""
-        }
-    );
+    let mode = if volume.is_some() {
+        "persistent"
+    } else {
+        "ephemeral"
+    };
+    println!("{} booting {}", cyan("◆"), bold(&name));
+    println!("    {:9} {}", dim("mode"), mode);
+    println!("    {:9} {}", dim("image"), image);
+    if let Some(t) = &template {
+        println!("    {:9} {}", dim("template"), t.name);
+    }
     let builder = configure_builder(SandboxSettings {
         name: &name,
         image: &image,
@@ -305,7 +308,7 @@ pub(crate) async fn cmd_new(app: &App, args: NewArgs, opts: NewOptions) -> Resul
         params![name, image, guest_port, host_port, Local::now().format("%Y-%m-%d %H:%M:%S").to_string(), template.as_ref().map(|t| &t.name), volume, expires, node],
     ).map(|_| ()).map_err(anyhow::Error::from);
     or_cleanup(insert, || stop_and_remove(&name)).await?;
-    println!("box {name} is up ({image}, guest :{guest_port})");
+    println!("{} {} ready — guest :{guest_port}", green("✓"), bold(&name));
 
     // Templates that declare url_command get their sign-in URL printed here —
     // a token minted inside the guest (voxl's, say) is otherwise undiscoverable
@@ -317,7 +320,7 @@ pub(crate) async fn cmd_new(app: &App, args: NewArgs, opts: NewOptions) -> Resul
         let base = box_display_url(node.as_deref(), None)
             .or_else(|| Some(format!("http://127.0.0.1:{host_port}/")));
         if let Some(url) = super::net::guest_sign_in_url(&sandbox, cmd, base.as_deref()).await {
-            println!("{name} app url: {url}");
+            println!("    {:9} {url}", cyan("app"));
         }
     }
 
@@ -340,7 +343,14 @@ pub(crate) async fn cmd_new(app: &App, args: NewArgs, opts: NewOptions) -> Resul
         return Ok(0);
     }
 
-    println!("  lilbox exec {name} -- <cmd>\n  lilbox ssh {name}\n  lilbox expose {name}");
+    println!(
+        "    {:9} lilbox ssh {name}\n    {:9} lilbox exec {name} -- <cmd>",
+        dim("ssh"),
+        dim("exec")
+    );
+    if node.is_none() {
+        println!("    {:9} lilbox expose {name}", dim("expose"));
+    }
     Ok(0)
 }
 

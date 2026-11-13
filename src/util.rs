@@ -1,5 +1,6 @@
 use std::{
     env,
+    io::IsTerminal,
     net::TcpListener,
     path::Path,
     process::Command as ProcessCommand,
@@ -154,6 +155,45 @@ where
             Err(e)
         }
     }
+}
+
+/// Whether to emit ANSI color: tty by default, `FORCE_COLOR` forces on,
+/// `NO_COLOR` forces off (the usual conventions).
+pub(crate) fn color_enabled() -> bool {
+    static ONCE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ONCE.get_or_init(|| {
+        if std::env::var_os("NO_COLOR").is_some() {
+            return false;
+        }
+        if std::env::var_os("FORCE_COLOR").is_some() {
+            return true;
+        }
+        std::io::stdout().is_terminal()
+    })
+}
+
+fn paint(code: &str, s: &str) -> String {
+    if color_enabled() {
+        format!("\x1b[{code}m{s}\x1b[0m")
+    } else {
+        s.to_string()
+    }
+}
+
+pub(crate) fn bold(s: &str) -> String {
+    paint("1", s)
+}
+
+pub(crate) fn cyan(s: &str) -> String {
+    paint("36", s)
+}
+
+pub(crate) fn green(s: &str) -> String {
+    paint("32", s)
+}
+
+pub(crate) fn dim(s: &str) -> String {
+    paint("2", s)
 }
 
 #[cfg(test)]

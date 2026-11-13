@@ -35,7 +35,12 @@ pub(crate) async fn provision_sandbox(
     fs::create_dir_all(app.logs_dir())?;
     restrict_mode(&app.logs_dir(), 0o700);
     sandbox.fs().write("/tmp/lilbox-setup.sh", setup).await?;
-    println!("provisioning {name} (template {}) ...", template.name);
+    println!(
+        "{} provisioning {} {}",
+        crate::util::cyan("◆"),
+        crate::util::bold(name),
+        crate::util::dim(&format!("(template {})", template.name))
+    );
     let output = sandbox.exec("/bin/sh", ["/tmp/lilbox-setup.sh"]).await?;
     let mut combined = output.stdout_bytes().to_vec();
     combined.extend_from_slice(output.stderr_bytes());
@@ -46,7 +51,7 @@ pub(crate) async fn provision_sandbox(
     if !output.status().success {
         bail!("setup failed for '{name}' (full log: {})", log.display());
     }
-    println!("provisioned {name} (log: {})", log.display());
+    println!("    {:9} {}", crate::util::dim("log"), log.display());
     Ok(())
 }
 
