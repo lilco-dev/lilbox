@@ -2,6 +2,29 @@ use anyhow::{Result, bail};
 
 use crate::model::Template;
 
+/// Canonical list of shipped starters, in display order. The `templates`
+/// listing and the builtin-resolution test both iterate this — a template
+/// added to `builtin_template` without an entry here is invisible in the UI.
+pub(crate) const BUILTIN_NAMES: &[&str] = &[
+    "node-dev",
+    "python-dev",
+    "rust-dev",
+    "go-dev",
+    "data-science",
+    "ml-pytorch",
+    "fullstack-web",
+    "base-debian",
+    "agent-sandbox",
+    "desktop-vm",
+];
+
+pub(crate) fn builtin_templates() -> Vec<Template> {
+    BUILTIN_NAMES
+        .iter()
+        .filter_map(|n| builtin_template(n))
+        .collect()
+}
+
 pub(crate) fn builtin_template(name: &str) -> Option<Template> {
     let (manifest, setup) = match name {
         "python-dev" => (
@@ -89,18 +112,7 @@ mod tests {
 
         // Every shipped starter resolves and carries an image (guards a typo'd
         // include_str! path or a malformed template.json in any builtin).
-        for name in [
-            "python-dev",
-            "node-dev",
-            "rust-dev",
-            "go-dev",
-            "data-science",
-            "ml-pytorch",
-            "fullstack-web",
-            "base-debian",
-            "agent-sandbox",
-            "desktop-vm",
-        ] {
+        for name in BUILTIN_NAMES {
             let t = builtin_template(name).unwrap_or_else(|| panic!("missing builtin '{name}'"));
             assert!(t.manifest.image.is_some(), "builtin '{name}' has no image");
         }
