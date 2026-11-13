@@ -8,7 +8,7 @@ use crate::cli::ImageCommand;
 use crate::overlay;
 use crate::sandbox::{status_name, statuses};
 use crate::tailscale::tailnet_host;
-use crate::templates::builtin_template;
+use crate::templates::builtin_templates;
 use crate::util::human_bytes;
 
 pub(crate) async fn ls(app: &App, json: bool) -> Result<()> {
@@ -67,17 +67,7 @@ pub(crate) async fn ls(app: &App, json: bool) -> Result<()> {
 }
 
 pub(crate) fn templates(app: &App) -> Result<()> {
-    let mut templates = vec![
-        builtin_template("node-dev").unwrap(),
-        builtin_template("python-dev").unwrap(),
-        builtin_template("rust-dev").unwrap(),
-        builtin_template("go-dev").unwrap(),
-        builtin_template("data-science").unwrap(),
-        builtin_template("ml-pytorch").unwrap(),
-        builtin_template("fullstack-web").unwrap(),
-        builtin_template("base-debian").unwrap(),
-        builtin_template("agent-sandbox").unwrap(),
-    ];
+    let mut templates = builtin_templates();
     let user = app.templates_dir();
     if let Ok(entries) = fs::read_dir(user) {
         for entry in entries.flatten() {
