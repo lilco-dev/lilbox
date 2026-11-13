@@ -1,5 +1,5 @@
 {
-  "image": "docker.io/library/golang:1.23-bookworm",
+  "image": "docker.io/library/golang:1.27-bookworm",
   "memory": "2G",
   "port": 8000,
   "description": "Go development box with the standard toolchain plus gopls and delve."

@@ -1,5 +1,5 @@
 {
-  "image": "docker.io/library/node:22-bookworm",
+  "image": "docker.io/library/node:26-bookworm",
   "memory": "2G",
   "port": 3000,
   "description": "Polyglot web box: Node 22 + pnpm frontend and a Python 3 + uv backend in one sandbox."

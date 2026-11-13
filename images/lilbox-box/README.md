@@ -14,11 +14,11 @@ daemon bring-up.
 
 | File | Role |
 |---|---|
-| `Dockerfile` | `alpine:3.20` + `tailscale` (ships `tailscale` **and** `tailscaled`), `iproute2`, `ca-certificates`, `openssh`. |
+| `Dockerfile` | `alpine:3.24` + `tailscale` (ships `tailscale` **and** `tailscaled`), `iproute2`, `ca-certificates`, `openssh`, `socat`. |
 | `lilbox-boot` | First-boot hook: starts `tailscaled` on a **real kernel tun** (`/dev/net/tun` + `CAP_NET_ADMIN` are present in the libkrun guest), falling back to userspace networking only if tun is absent. Idempotent. |
 | `build.sh` | `docker build` -> `docker save` -> native `lilbox image load`. |
 
-Tailscale version tracks the pinned Alpine release (`3.20` → tailscale `1.66.4`).
+Tailscale version tracks the pinned Alpine release (`3.24` → tailscale `1.98.10`).
 Bump the `FROM` line to move it.
 
 ## Build & load
@@ -37,7 +37,7 @@ image is loaded straight into microsandbox's cache under the tag `lilbox-box`.
 
 ```bash
 lilbox new mybox --image lilbox-box     # boots the box
-lilbox exec mybox -- tailscale version  # -> 1.66.4  (tailscale is baked in)
+lilbox exec mybox -- tailscale version  # -> 1.98.10  (tailscale is baked in)
 ```
 
 The `lilbox-boot` hook starts `tailscaled` (bringing up a `tailscale0` kernel

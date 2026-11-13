@@ -34,7 +34,7 @@ use crate::util::now;
 const OCI_REF_NAME_ANNOTATION: &str = "org.opencontainers.image.ref.name";
 
 /// Tailscale release to fetch for the `tailscalify` overlay layer.
-const TAILSCALE_VERSION: &str = "1.102.2";
+const TAILSCALE_VERSION: &str = "1.104.7";
 
 /// Pinned SHA-256 of each `TAILSCALE_VERSION` release tarball (from
 /// `pkgs.tailscale.com/stable/tailscale_<ver>_<arch>.tgz.sha256`). The
@@ -42,9 +42,9 @@ const TAILSCALE_VERSION: &str = "1.102.2";
 /// layer that runs as root in the guest — HTTPS authenticates the host, this
 /// pins the exact artifact. Bump both when `TAILSCALE_VERSION` changes.
 const TAILSCALE_SHA256_AMD64: &str =
-    "ad2cde12f8de95f7b93a1e0401e652291c603d42b9d60a33fb1741eb38ab04d8";
+    "e56693ff74a64f2591b7e819c280635a100aae1ddfb0ef058fcd052b7cd8d16c";
 const TAILSCALE_SHA256_ARM64: &str =
-    "2b64e9ade7e73034b5ec9e9bcd537f5ddd14ae3abb435e57e929e7486ae42660";
+    "d6bed2720310b328b861f943d7b4016c5358a9bad60575eb51e8143b79068484";
 
 /// The canonical lilbox-box first-boot bring-up hook, embedded so the
 /// tailscalified image and the reference `images/lilbox-box` build share a
