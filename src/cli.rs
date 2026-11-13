@@ -4,10 +4,68 @@ use clap::{Args, Parser, Subcommand};
 
 use crate::util::DEFAULT_IMAGE;
 
+/// Static, topic-grouped `--help` text. clap renders subcommands under a
+/// single "Commands:" heading with no per-group support, so the top-level
+/// help is hand-maintained here; `grouped_help_covers_every_subcommand`
+/// guards against drift when a command is added or renamed.
+const GROUPED_HELP: &str = "a lil exe.dev you run yourself - microVMs on your tailnet
+
+Usage: lilbox <COMMAND>
+
+Boxes:
+  new          Create a new persistent microVM
+  run          Boot an ephemeral box, run a command, and discard it
+  fork         Snapshot a box and boot a clone
+  rebuild      Recreate a box on an image while preserving its home volume
+
+Using a box:
+  ssh          Open a shell (or run a command) in a box
+  exec         Run a command in a box
+  cp           Copy a file to or from a box (box side is NAME:/path)
+  logs         Show a box's captured output
+  provision    Re-run a box template's setup script
+  agent        Run Claude Code in a microVM against a mounted workspace
+
+Inspecting:
+  ls           List boxes
+  stat         Show detailed box information
+  url          Print a box's published URL
+  volumes      List persistent home volumes
+
+Lifecycle:
+  stop         Stop a running box
+  start        Start a stopped box
+  restart      Restart a box
+  rm           Remove a box
+  gc           Reap boxes whose TTL has elapsed
+
+Tailnet:
+  expose       Publish a box over Tailscale HTTPS
+  unexpose     Stop publishing a box
+  join         Join a box to the tailnet as its own node
+  leave        Log a box out of the tailnet
+
+Templates & images:
+  templates    List available templates
+  template     Manage user-installed templates
+  image        Manage the embedded microsandbox image cache
+
+Admin:
+  auth         Manage the stored tailnet OAuth credential
+  gateway      SSH server / forced-command entry point (`lilbox gateway --help`)
+  doctor       Check the local runtime and Tailscale installation
+  completions  Generate a shell completion script
+  help         Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+";
+
 #[derive(Parser)]
 #[command(
     name = "lilbox",
-    about = "a lil exe.dev you run yourself - microVMs on your tailnet"
+    about = "a lil exe.dev you run yourself - microVMs on your tailnet",
+    override_help = GROUPED_HELP
 )]
 pub(crate) struct Cli {
     #[command(subcommand)]
@@ -16,34 +74,77 @@ pub(crate) struct Cli {
 
 #[derive(Subcommand)]
 pub(crate) enum Command {
+    // Boxes
     /// Create a new persistent microVM.
     New(NewArgs),
+    /// Boot an ephemeral box, run a command, and discard it.
+    Run(RunArgs),
+    /// Snapshot a box and boot a clone.
+    Fork {
+        name: String,
+        newname: Option<String>,
+        /// Leave the tailnet first when the box is joined, instead of refusing.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Recreate a box on an image while preserving its home volume.
+    Rebuild {
+        name: String,
+        #[arg(long)]
+        image: Option<String>,
+    },
+
+    // Using a box
+    /// Open a shell (or run a command) in a box.
+    Ssh(ExecArgs),
+    /// Run a command in a box.
+    Exec(ExecArgs),
+    /// Copy a file to or from a box (box side is NAME:/path).
+    Cp { src: String, dst: String },
+    /// Show a box's captured output.
+    Logs(LogsArgs),
+    /// Re-run a box template's setup script.
+    Provision { name: String },
+    /// Run Claude Code in a microVM against a mounted workspace.
+    Agent(AgentArgs),
+
+    // Inspecting
     /// List boxes.
     Ls {
         /// Emit machine-readable JSON.
         #[arg(long)]
         json: bool,
     },
+    /// Show detailed box information.
+    Stat { name: String },
+    /// Print a box's published URL.
+    Url {
+        name: String,
+        /// Open the URL in the browser, too (no-op with a warning on hosts
+        /// without a browser opener, e.g. headless servers).
+        #[arg(long)]
+        open: bool,
+    },
+    /// List persistent home volumes.
+    Volumes,
+
+    // Lifecycle
+    /// Stop a running box.
+    Stop { name: String },
+    /// Start a stopped box.
+    Start { name: String },
+    /// Restart a box.
+    Restart { name: String },
+    /// Remove a box.
+    Rm {
+        name: String,
+        #[arg(long)]
+        keep_data: bool,
+    },
     /// Reap boxes whose TTL has elapsed.
     Gc,
-    /// List available templates.
-    Templates,
-    /// Manage the stored tailnet OAuth credential.
-    Auth(AuthArgs),
-    /// Manage user-installed templates.
-    Template(TemplateArgs),
-    /// Re-run a box template's setup script.
-    Provision { name: String },
-    /// Run a command in a box.
-    Exec(ExecArgs),
-    /// Open a shell (or run a command) in a box.
-    Ssh(ExecArgs),
-    /// Copy a file to or from a box (box side is NAME:/path).
-    Cp { src: String, dst: String },
-    /// Show a box's captured output.
-    Logs(LogsArgs),
-    /// Boot an ephemeral box, run a command, and discard it.
-    Run(RunArgs),
+
+    // Tailnet
     /// Publish a box over Tailscale HTTPS.
     Expose {
         name: String,
@@ -61,48 +162,18 @@ pub(crate) enum Command {
     },
     /// Log a box out of the tailnet.
     Leave { name: String },
-    /// Stop a running box.
-    Stop { name: String },
-    /// Start a stopped box.
-    Start { name: String },
-    /// Restart a box.
-    Restart { name: String },
-    /// Remove a box.
-    Rm {
-        name: String,
-        #[arg(long)]
-        keep_data: bool,
-    },
-    /// Snapshot a box and boot a clone.
-    Fork {
-        name: String,
-        newname: Option<String>,
-        /// Leave the tailnet first when the box is joined, instead of refusing.
-        #[arg(long)]
-        force: bool,
-    },
-    /// Recreate a box on an image while preserving its home volume.
-    Rebuild {
-        name: String,
-        #[arg(long)]
-        image: Option<String>,
-    },
-    /// List persistent home volumes.
-    Volumes,
+
+    // Templates & images
+    /// List available templates.
+    Templates,
+    /// Manage user-installed templates.
+    Template(TemplateArgs),
     /// Manage the embedded microsandbox image cache.
     Image(ImageArgs),
-    /// Show detailed box information.
-    Stat { name: String },
-    /// Print a box's published URL.
-    Url {
-        name: String,
-        /// Open the URL in the browser, too (no-op with a warning on hosts
-        /// without a browser opener, e.g. headless servers).
-        #[arg(long)]
-        open: bool,
-    },
-    /// Run Claude Code in a microVM against a mounted workspace.
-    Agent(AgentArgs),
+
+    // Admin
+    /// Manage the stored tailnet OAuth credential.
+    Auth(AuthArgs),
     /// SSH gateway: with `--listen` (or `[gateway] listen` in config), act as
     /// a standalone SSH server — the exe.dev-style UX: `ssh <box>@host`
     /// attaches, `ssh new@host` creates, `ssh host ls` runs allowlisted
@@ -302,4 +373,24 @@ pub(crate) struct AgentArgs {
     pub(crate) env: Vec<String>,
     #[arg(last = true)]
     pub(crate) task: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    #[test]
+    fn grouped_help_covers_every_subcommand() {
+        // GROUPED_HELP is hand-maintained (clap renders subcommands under a
+        // single heading, so topic grouping is static text). Fail loudly when
+        // a command is added/renamed without updating it.
+        for sub in Cli::command().get_subcommands() {
+            let name = sub.get_name();
+            assert!(
+                GROUPED_HELP.contains(&format!("\n  {name} ")),
+                "GROUPED_HELP is missing '{name}' — add it under the right topic"
+            );
+        }
+    }
 }
