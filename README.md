@@ -17,7 +17,7 @@ Each box is a genuine microVM — it boots its own Linux kernel in ~1–2s, not 
 container sharing yours. `lilbox exec` reports a **different kernel version than
 the host**, because it *is* a different kernel.
 
-![A desktop on your tailnet with one command](docs/media/launch.gif?raw=true)
+![A desktop on your tailnet with one command](https://raw.githubusercontent.com/lilco-dev/lilbox/main/docs/media/launch.gif)
 
 *One command → a desktop VM on your tailnet: `lilbox new --template desktop-vm`
 boots wrapvm's XFCE + Chrome desktop, joins the tailnet as its own node, and
