@@ -4,6 +4,29 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 description = "A lil exe.dev you run on your own box"
+repository = "https://github.com/lilco-dev/lilbox"
+readme = "README.md"
+keywords = ["microvm", "tailscale", "sandbox", "libkrun", "dev-environments"]
+categories = ["command-line-utilities", "development-tools"]
+# Ship the crate, not the repo: rig/agent tooling, media, and the Docker
+# image build are dev-side only. templates/ MUST stay (include_str! embeds
+# them into the binary at compile time).
+exclude = [
+    "/.agents",
+    "/.claude",
+    "/.rig",
+    "/.github",
+    "/docs",
+    "/contrib",
+    "/images/lilbox-box/Dockerfile",
+    "/images/lilbox-box/build.sh",
+    "/images/lilbox-box/README.md",
+    "/install.sh",
+    "/scripts",
+    "/config.toml.example",
+    "/AGENTS.md",
+    "/CLAUDE.md",
+]
 
 [[bin]]
 name = "lilbox"
