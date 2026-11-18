@@ -76,10 +76,12 @@ The live end-to-end paths need a KVM host and network access for image pulls;
 scripts/release.sh patch|minor|major|X.Y.Z [--dry-run]
 ```
 
-Bumps Cargo.toml + lockfile, commits "Release vX.Y.Z", tags `vX.Y.Z`, and
-pushes main + tag. The tag triggers `.github/workflows/release.yml`: binary
-builds → GitHub Release → crates.io publish (OIDC trusted publishing; the
-job refuses tags that don't match Cargo.toml's version).
+Bumps Cargo.toml + lockfile, commits "Release vX.Y.Z" on a `release/vX.Y.Z`
+branch, squash-merges it through a PR (main is protected), then tags
+`vX.Y.Z` on the resulting main commit and pushes the tag. The tag triggers
+`.github/workflows/release.yml`: binary builds → GitHub Release → crates.io
+publish (OIDC trusted publishing; the job refuses tags that don't match
+Cargo.toml's version).
 
 Agents **may** run this, but only when the user explicitly asks for a
 release — crates.io versions are permanent. The script is self-guarding

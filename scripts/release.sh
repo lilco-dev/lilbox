@@ -80,10 +80,29 @@ grep -q "version = \"$next\"" Cargo.lock || {
   echo "lockfile did not pick up $next" >&2; exit 1;
 }
 
+# main is protected (PRs only), so the bump lands through a one-commit PR;
+# the tag goes on the squashed main commit afterwards — never before the
+# main push succeeds.
+rel_branch="release/v$next"
+git checkout -b "$rel_branch"
 git add Cargo.toml Cargo.lock
 git commit -m "Release v$next"
+git push -u origin "$rel_branch"
+
+gh pr create --title "Release v$next" \
+  --body "Version bump to $next. Merging tags \`v$next\` on the squashed main commit, which triggers the release workflow (binaries + GitHub Release + crates.io publish)."
+
+# Auto-merge when checks pass; fall back to waiting synchronously when the
+# repo has auto-merge disabled.
+if ! gh pr merge --squash --auto --delete-branch "$rel_branch" 2>/dev/null; then
+  gh pr checks "$rel_branch" --watch
+  gh pr merge --squash --delete-branch "$rel_branch"
+fi
+
+git checkout main
+git pull --ff-only
 git tag "v$next"
-git push origin main "v$next"
+git push origin "v$next"
 
 echo "tag v$next pushed — watch the release:"
 echo "  gh run list --workflow release.yml --limit 1"
