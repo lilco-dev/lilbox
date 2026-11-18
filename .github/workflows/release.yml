@@ -124,13 +124,14 @@ jobs:
     needs: build
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       # crates.io Trusted Publishing (OIDC) — no stored token. Requires the
       # crate to exist and this workflow to be registered as a trusted
       # publisher (crates.io crate settings; repo lilco-dev/lilbox,
-      # workflow release.yml). The very first publish is manual
-      # (`cargo publish --locked`) because a crate can't have a trusted
-      # publisher before it exists.
+      # workflow release.yml, environment release). The very first publish is
+      # manual (`cargo publish --locked`) because a crate can't have a
+      # trusted publisher before it exists.
       id-token: write
       contents: read
     steps:
