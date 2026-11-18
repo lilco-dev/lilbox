@@ -70,6 +70,23 @@ The live end-to-end paths need a KVM host and network access for image pulls;
 - `contrib/herdr/` — herdr plugin exposing lilbox as an agent sandbox backend.
 - `tests/` — CLI integration tests (pinned to a temp HOME; no live KVM).
 
+## Releasing
+
+```bash
+scripts/release.sh patch|minor|major|X.Y.Z [--dry-run]
+```
+
+Bumps Cargo.toml + lockfile, commits "Release vX.Y.Z", tags `vX.Y.Z`, and
+pushes main + tag. The tag triggers `.github/workflows/release.yml`: binary
+builds → GitHub Release → crates.io publish (OIDC trusted publishing; the
+job refuses tags that don't match Cargo.toml's version).
+
+Agents **may** run this, but only when the user explicitly asks for a
+release — crates.io versions are permanent. The script is self-guarding
+(must be on a clean, synced `main`; runs the full fmt/clippy/test gates
+before tagging), so `--dry-run` first is the norm when reporting what a
+release would do.
+
 ## Conventions
 
 - Rust edition 2024, stable toolchain; keep `cargo fmt --check` and clippy

@@ -22,6 +22,7 @@ exclude = [
     "/images/lilbox-box/build.sh",
     "/images/lilbox-box/README.md",
     "/install.sh",
+    "/scripts",
     "/config.toml.example",
     "/AGENTS.md",
     "/CLAUDE.md",
