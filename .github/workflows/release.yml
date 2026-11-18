@@ -1,8 +1,10 @@
 name: Release
 
-# Tag push (v*) builds + publishes a GitHub Release. workflow_dispatch lets us
-# probe a target (esp. macOS) build in isolation before ever pushing a tag —
-# it builds/packages/uploads workflow artifacts but does not touch Releases.
+# Tag push (v*) builds binaries, publishes a GitHub Release, and publishes
+# the crate to crates.io (trusted publishing / OIDC). workflow_dispatch lets
+# us probe a target (esp. macOS) build in isolation before ever pushing a
+# tag — it builds/packages/uploads workflow artifacts but does not touch
+# Releases or crates.io.
 on:
   push:
     tags:
@@ -116,3 +118,49 @@ jobs:
           files: |
             dist/*.tar.gz
             dist/checksums.sha256
+
+  publish:
+    name: Publish to crates.io
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      # crates.io Trusted Publishing (OIDC) — no stored token. Requires the
+      # crate to exist and this workflow to be registered as a trusted
+      # publisher (crates.io crate settings; repo lilco-dev/lilbox,
+      # workflow release.yml). The very first publish is manual
+      # (`cargo publish --locked`) because a crate can't have a trusted
+      # publisher before it exists.
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        # cargo publish verifies the packaged tarball by building it, which
+        # links microsandbox's VMM stack -> needs libcap-ng (as above).
+        run: sudo apt-get update && sudo apt-get install -y libcap-ng-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Tag matches Cargo.toml version
+        # A v1.2.3 tag must publish exactly 1.2.3; refuse mismatches so a
+        # fat-fingered tag can't leak a wrong version to crates.io
+        # (published versions are permanent).
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          manifest="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
+          if [ "$tag" != "$manifest" ]; then
+            echo "tag v$tag but Cargo.toml says $manifest — bump Cargo.toml first" >&2
+            exit 1
+          fi
+
+      - id: auth
+        uses: rust-lang/crates-io-auth-action@v1
+
+      - name: Publish
+        run: cargo publish --locked --token "${{ steps.auth.outputs.token }}"
