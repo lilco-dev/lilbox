@@ -523,9 +523,72 @@ The forced-command gateway therefore only works where **OpenSSH** actually
 handles the connection: a host without Tailscale SSH on :22, an OpenSSH instance
 on a non-22 port (Tailscale SSH only intercepts 22), or a LAN/loopback path.
 
-A Tailscale-SSH-native gateway — a dedicated login-shell user gated by a tailnet
-`ssh` policy stanza, with per-caller identity from `tailscale whois` (no keys) —
-is the intended path on such hosts and is tracked as follow-up.
+A Tailscale-SSH-native setup — a dedicated login-shell user gated by a tailnet
+`ssh` policy stanza, no keys anywhere — is below.
+
+### Tailscale SSH: gateway as a login shell (no keys)
+
+Tailscale SSH runs the target user's login shell for every session
+(`<shell> -c "<command>"` for non-interactive ones), so the gateway moves into
+the shell position. Auth is the tailnet itself: per-caller identity, ACLs, and
+session recording come from Tailscale; there are no client keys at all.
+
+On the box host:
+
+```sh
+# 1. Wrapper shell: translate `<shell> -c <cmd>` back into the
+#    $SSH_ORIGINAL_COMMAND the gateway dispatches on. Bare `ssh lilbox@host`
+#    (no command) gets the gateway's usage text.
+sudo tee /usr/local/bin/lilbox-gateway-shell >/dev/null <<'EOF'
+#!/bin/sh
+# Absolute path: tailscaled runs shells with a minimal PATH.
+LILBOX=/usr/local/bin/lilbox
+if [ "$#" -ge 2 ] && [ "$1" = "-c" ]; then
+  shift
+  SSH_ORIGINAL_COMMAND="$*" exec "$LILBOX" gateway
+fi
+exec "$LILBOX" gateway
+EOF
+sudo chmod 755 /usr/local/bin/lilbox-gateway-shell
+echo /usr/local/bin/lilbox-gateway-shell | sudo tee -a /etc/shells
+
+# 2. Service user (kvm group for /dev/kvm), boxes live in its $HOME:
+sudo useradd -m -G kvm -s /usr/local/bin/lilbox-gateway-shell lilbox
+```
+
+Then gate access in the tailnet policy file (admin console), granting the
+people who may drive boxes to that local user only:
+
+```json
+{
+  "action": "accept",
+  "src": ["autogroup:member"],
+  "dst": ["tag:homelab-vm"],
+  "users": ["lilbox"]
+}
+```
+
+Usage is the forced-command grammar with the user fixed:
+
+```bash
+ssh lilbox@host ls
+ssh lilbox@host new --tailscale          # provision a box
+ssh lilbox@host my-box                   # attach (direct-attach shorthand)
+ssh lilbox@host my-box -- htop           # one command inside a box
+```
+
+Caveats versus the `--listen` gateway:
+
+- **No username routing** — `ssh my-box@host` can't work; Tailscale SSH needs
+  a real local user. Box names go in the command instead.
+- All boxes belong to the single `lilbox` account; per-caller identity is
+  known to Tailscale (and in `tailscaled`'s session logs) but not yet
+  surfaced into lilbox state (tracked follow-up).
+- `new --tailscale` needs the service user's own Tailscale OAuth credential:
+  `sudo -u lilbox lilbox auth login` once on the host.
+- Same trust note as the forced-command mode: the allowlist permits `rm` and
+  `ssh <box> -- <cmd>`, so the tailnet grant *is* the trust boundary — scope
+  `users` and `src` accordingly.
 
 ## Persistent volumes (devboxes)
 
