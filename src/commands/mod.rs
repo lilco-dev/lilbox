@@ -2,6 +2,7 @@ mod agent;
 mod auth;
 mod cp;
 pub(crate) mod gateway;
+mod hc;
 mod lifecycle;
 mod net;
 mod new;
@@ -59,6 +60,7 @@ pub(crate) async fn dispatch(app: &App, command: Command) -> Result<i32> {
         Command::Stat { name } => view::stat(app, name).await?,
         Command::Url { name, open } => net::url(app, name, open).await?,
         Command::Agent(args) => return agent::cmd_agent(app, args).await,
+        Command::Hc(args) => return hc::cmd_hc(args.command),
         Command::Gateway(args) => return gateway::cmd_gateway(app, args).await,
         Command::Doctor => view::doctor(app)?,
         // Handled in main() before App::new() so completion generation never

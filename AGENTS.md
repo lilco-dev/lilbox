@@ -67,7 +67,8 @@ The live end-to-end paths need a KVM host and network access for image pulls;
 - `templates/` — built-in box templates (Dockerfile + `setup.sh` +
   `template.json` per dir).
 - `images/lilbox-box/` — the tailnet-capable base image build.
-- `contrib/herdr/` — herdr plugin exposing lilbox as an agent sandbox backend.
+- `contrib/hc/` — herdr-core (`hc`) template: one microVM per directory with a
+  coding agent inside, installed by `lilbox hc install`.
 - `tests/` — CLI integration tests (pinned to a temp HOME; no live KVM).
 
 ## Releasing

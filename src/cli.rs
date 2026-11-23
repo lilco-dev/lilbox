@@ -24,7 +24,6 @@ Using a box:
   cp           Copy a file to or from a box (box side is NAME:/path)
   logs         Show a box's captured output
   provision    Re-run a box template's setup script
-  agent        Run Claude Code in a microVM against a mounted workspace
 
 Inspecting:
   ls           List boxes
@@ -49,6 +48,10 @@ Templates & images:
   templates    List available templates
   template     Manage user-installed templates
   image        Manage the embedded microsandbox image cache
+
+Agents:
+  agent        Run Claude Code in a microVM against a mounted workspace
+  hc           Install the herdr-core agent template (`lilbox hc --help`)
 
 Admin:
   auth         Manage the stored tailnet OAuth credential
@@ -107,6 +110,8 @@ pub(crate) enum Command {
     Provision { name: String },
     /// Run Claude Code in a microVM against a mounted workspace.
     Agent(AgentArgs),
+    /// herdr-core (hc) integration.
+    Hc(HcArgs),
 
     // Inspecting
     /// List boxes.
@@ -367,12 +372,24 @@ pub(crate) struct AgentArgs {
     #[arg(long)]
     pub(crate) no_claude_config: bool,
     /// Extra KEY=VAL environment for the guest agent exec. Transient: passed to
-    /// the exec call only, never persisted in the sandbox config (the herdr
-    /// plugin uses this to forward pane identity, #131).
+    /// the exec call only, never persisted in the sandbox config.
     #[arg(long = "env", value_name = "KEY=VAL")]
     pub(crate) env: Vec<String>,
     #[arg(last = true)]
     pub(crate) task: Vec<String>,
+}
+
+#[derive(Subcommand)]
+pub(crate) enum HcCommand {
+    /// Install the `lilbox-agent` template for herdr-core (hc): one microVM
+    /// per directory, coding agent inside, real OSC 7501 agent state.
+    Install,
+}
+
+#[derive(Args)]
+pub(crate) struct HcArgs {
+    #[command(subcommand)]
+    pub(crate) command: HcCommand,
 }
 
 #[cfg(test)]
