@@ -267,7 +267,7 @@ pub(crate) fn configure_builder(
             m.named_with(volume, |v| v.ensure_exists())
         });
     }
-    with_herdr_vsock(builder, herdr_socket_path_from_env())
+    builder
 }
 
 fn secret_shape(secret: SecretBuilder, env: &str, host: &str) -> SecretBuilder {
@@ -282,49 +282,6 @@ pub(crate) fn with_secret_env(builder: SandboxBuilder, env: &str, host: &str) ->
     })
 }
 
-/// Guest-side vsock port that forwards the host's herdr control socket.
-/// Guests connect to AF_VSOCK CID 2 on this port (spike: #127).
-pub(crate) const HERDR_VSOCK_PORT: u32 = 47100;
-
-/// Decide whether to route the host's herdr control socket into the box.
-/// Returns the socket path + guest port only when the env var is set and the
-/// path is a live unix socket; anything else (unset, missing, not a socket)
-/// means "herdr isn't driving" and the box must provision identically.
-pub(crate) fn herdr_vsock_route(
-    socket_path: Option<std::path::PathBuf>,
-) -> Option<(std::path::PathBuf, u32)> {
-    let path = socket_path?;
-    let meta = std::fs::metadata(&path).ok()?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::FileTypeExt;
-        if !meta.file_type().is_socket() {
-            return None;
-        }
-    }
-    Some((path, HERDR_VSOCK_PORT))
-}
-
-/// Wire the route into a builder when herdr is driving this invocation.
-/// Best-effort by construction: with no route decision the builder passes
-/// through untouched, so provisioning can never fail because of this.
-/// Scope: `new`, `rebuild` (both via `configure_builder`) and `agent` get the
-/// route; `fork` and ad-hoc `run` deliberately do not — a fork inherits
-/// whatever its snapshot carried, and `run` boxes are ephemeral.
-pub(crate) fn with_herdr_vsock(
-    builder: SandboxBuilder,
-    socket_path: Option<std::path::PathBuf>,
-) -> SandboxBuilder {
-    match herdr_vsock_route(socket_path) {
-        Some((path, port)) => builder.vsock(path, port),
-        None => builder,
-    }
-}
-
-pub(crate) fn herdr_socket_path_from_env() -> Option<std::path::PathBuf> {
-    std::env::var_os("HERDR_SOCKET_PATH").map(std::path::PathBuf::from)
-}
-
 pub(crate) async fn stop_and_remove(name: &str) -> Result<()> {
     if let Ok(handle) = Sandbox::get(name).await {
         let _ = handle.stop().await;
@@ -332,90 +289,5 @@ pub(crate) async fn stop_and_remove(name: &str) -> Result<()> {
     match Sandbox::remove(name).await {
         Ok(()) | Err(MicrosandboxError::SandboxNotFound(_)) => Ok(()),
         Err(err) => Err(err).with_context(|| format!("could not remove '{name}'")),
-    }
-}
-
-#[cfg(all(test, unix))]
-mod herdr_vsock_tests {
-    use super::*;
-    use std::os::unix::net::UnixListener;
-
-    fn bound_socket() -> (std::path::PathBuf, UnixListener) {
-        // Unique per call: tests run in parallel in one process, so a bare pid
-        // path races (one test's remove_file lands between the other's remove
-        // and bind -> AddrInUse flake).
-        static SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "lilbox-herdr-vsock-test-{}-{}",
-            std::process::id(),
-            SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        ));
-        let _ = std::fs::remove_file(&path);
-        let listener = UnixListener::bind(&path).unwrap();
-        (path, listener)
-    }
-
-    #[test]
-    fn unset_env_means_no_route() {
-        assert_eq!(herdr_vsock_route(None), None);
-    }
-
-    #[test]
-    fn missing_socket_means_no_route() {
-        let path =
-            std::env::temp_dir().join(format!("lilbox-herdr-vsock-absent-{}", std::process::id()));
-        assert_eq!(herdr_vsock_route(Some(path)), None);
-    }
-
-    #[test]
-    fn non_socket_path_means_no_route() {
-        let path =
-            std::env::temp_dir().join(format!("lilbox-herdr-vsock-file-{}", std::process::id()));
-        std::fs::write(&path, b"not a socket").unwrap();
-        assert_eq!(herdr_vsock_route(Some(path.clone())), None);
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn live_socket_gets_route_on_fixed_port() {
-        let (path, _listener) = bound_socket();
-        let route = herdr_vsock_route(Some(path.clone())).unwrap();
-        // Pin the literal: the guest-side shim (#130) hardcodes this port, so a
-        // constant change without a guest change is a silent break.
-        assert_eq!(route, (path.clone(), 47100));
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[tokio::test]
-    async fn route_is_serialized_into_builder_config() {
-        let (path, _listener) = bound_socket();
-        let config = with_herdr_vsock(
-            Sandbox::builder("vsock-route-test").image("python"),
-            Some(path.clone()),
-        )
-        .build()
-        .await
-        .unwrap();
-        let serialized = serde_json::to_string(&config).unwrap();
-
-        assert!(serialized.contains(path.to_str().unwrap()));
-        assert!(serialized.contains("\"port\":47100"));
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[tokio::test]
-    async fn builder_passthrough_when_no_route() {
-        // With no socket, with_herdr_vsock must add no route (and not error).
-        let config = with_herdr_vsock(
-            Sandbox::builder("vsock-passthrough-test").image("python"),
-            None,
-        )
-        .build()
-        .await
-        .unwrap();
-        let serialized = serde_json::to_string(&config).unwrap();
-        // vsock serializes with skip_serializing_if = is_empty, so no route
-        // means the key is absent entirely.
-        assert!(!serialized.contains("\"vsock\""));
     }
 }

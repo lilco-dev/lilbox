@@ -1,0 +1,51 @@
+#!/bin/sh
+# lilbox herdr-core template entrypoint: one microVM per working directory,
+# coding agent exec'd inside. Started by `hc run lilbox-agent [task]`; the task
+# is pasted into this terminal's stdin and reaches the agent through the
+# attach PTY. Agent state (working/blocked/done) is OSC 7501 emitted by the
+# agent, which the attach bridge passes through byte-transparently.
+set -eu
+
+LILBOX_BIN=${LILBOX_BIN:-lilbox}
+AGENT=${LILBOX_AGENT_CMD:-claude}
+IMAGE=${LILBOX_IMAGE:-python}
+
+# hd-<slug>-<6 hex of sha256(canonical path)> — the same name the old herdr
+# plugin derived, so its boxes are reused rather than orphaned. The hash keeps
+# two worktrees that share a basename from colliding onto each other's box.
+path=$(realpath -m -- "$PWD")
+slug=$(printf '%s' "${path##*/}" |
+	tr '[:upper:]' '[:lower:]' |
+	tr -c 'a-z0-9' '-' |
+	sed -e 's/-\{2,\}/-/g' -e 's/^-//' -e 's/-$//')
+slug=$(printf '%.16s' "${slug:-box}")
+hash=$(printf '%s' "$path" | sha256sum | cut -c1-6)
+name="hd-$slug-$hash"
+
+# "" = no box, "running" = live, "gone" = stale row (VM lost), else stopped.
+status=$("$LILBOX_BIN" ls --json 2>/dev/null |
+	jq -r --arg n "$name" '.[] | select(.name == $n) | .status' 2>/dev/null |
+	head -n1)
+case $status in
+running) ;;
+'' | gone)
+	if [ -n "$status" ]; then
+		# Stale row: a fresh `lilbox agent` would bail on the name.
+		"$LILBOX_BIN" rm "$name" || true
+	fi
+	[ -d "$path" ] || {
+		echo "lilbox-hc-agent: directory is gone: $path" >&2
+		exit 1
+	}
+	echo "booting $name for $path ..."
+	"$LILBOX_BIN" agent "$name" --workspace "$path" --image "$IMAGE"
+	;;
+*)
+	echo "starting $name (was $status) ..."
+	"$LILBOX_BIN" start "$name"
+	;;
+esac
+
+# `lilbox ssh` is a raw PTY bridge to the guest, so the agent's OSC 7501
+# escapes reach the core. The agent command travels as a positional arg.
+exec "$LILBOX_BIN" ssh "$name" -- sh -lc 'cd /workspace 2>/dev/null || true; exec "$1"' sh "$AGENT"

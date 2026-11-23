@@ -73,6 +73,7 @@ fn command_label(command: &Command) -> &'static str {
         Command::Stat { .. } => "stat",
         Command::Url { .. } => "url",
         Command::Agent(_) => "agent",
+        Command::Hc(_) => "hc",
         Command::Doctor => "doctor",
         Command::Completions { .. } => "completions",
         Command::Gateway(_) => "gateway",

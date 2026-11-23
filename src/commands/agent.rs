@@ -10,10 +10,7 @@ use serde_json::Value;
 
 use crate::app::App;
 use crate::cli::AgentArgs;
-use crate::sandbox::{
-    HERDR_VSOCK_PORT, herdr_socket_path_from_env, herdr_vsock_route, run_guest, stop_and_remove,
-    with_herdr_vsock, with_secret_env,
-};
+use crate::sandbox::{run_guest, stop_and_remove, with_secret_env};
 use crate::util::{DEFAULT_GUEST_PORT, alloc_host_port, find_program, or_cleanup, random_name};
 
 const AGENT_WORKDIR: &str = "/workspace";
@@ -124,38 +121,12 @@ fn parse_exec_env(pairs: &[String]) -> Result<Vec<(String, String)>> {
 }
 
 /// Build the guest command that runs the agent task.
-/// When the herdr relay route is active (`relay_socket` is the mirrored guest
-/// path for the host's herdr socket), the script first spawns the unix→vsock
-/// socat listener and exports HERDR_SOCKET_PATH so the in-box agent's herdr
-/// hook works unchanged (spike #127). socat is best-effort: a guest without
-/// it warns on stderr and the agent launches without the relay. When the
-/// route is inactive the historical command is returned unchanged.
-fn agent_launch_command(task: &str, relay_socket: Option<&std::path::Path>) -> Vec<String> {
-    let Some(sock) = relay_socket else {
-        return vec![
-            "sh".into(),
-            "-c".into(),
-            "IS_SANDBOX=1 exec claude -p \"$1\" --dangerously-skip-permissions".into(),
-            "sh".into(),
-            task.into(),
-        ];
-    };
-    let script = format!(
-        "HERDR_SOCKET_PATH=$1; export HERDR_SOCKET_PATH; \
-         mkdir -p \"${{HERDR_SOCKET_PATH%/*}}\"; \
-         if command -v socat >/dev/null 2>&1; then \
-         socat \"UNIX-LISTEN:$HERDR_SOCKET_PATH,fork,reuseaddr\" \"VSOCK-CONNECT:2:{HERDR_VSOCK_PORT}\" >/dev/null & \
-         else echo \"warning: socat missing in guest; agent runs without the herdr relay\" >&2; fi; \
-         IS_SANDBOX=1 exec claude -p \"$2\" --dangerously-skip-permissions"
-    );
-    // Socket path and task travel as positional args, so host paths with
-    // spaces or shell metacharacters never need quoting into the script.
+fn agent_launch_command(task: &str) -> Vec<String> {
     vec![
         "sh".into(),
         "-c".into(),
-        script,
+        "IS_SANDBOX=1 exec claude -p \"$1\" --dangerously-skip-permissions".into(),
         "sh".into(),
-        sock.to_string_lossy().into_owned(),
         task.into(),
     ]
 }
@@ -199,7 +170,7 @@ pub(crate) async fn cmd_agent(app: &App, args: AgentArgs) -> Result<i32> {
         bail!("workspace not found: {}", workspace.display());
     }
     let host_port = alloc_host_port()?;
-    let builder = Sandbox::builder(&name)
+    let mut builder = Sandbox::builder(&name)
         .image(args.image.as_str())
         .port(host_port, DEFAULT_GUEST_PORT)
         .workdir(AGENT_WORKDIR)
@@ -207,7 +178,6 @@ pub(crate) async fn cmd_agent(app: &App, args: AgentArgs) -> Result<i32> {
         .detached(true)
         .label("dev.lilbox.managed", "true")
         .label("dev.lilbox.kind", "agent");
-    let mut builder = with_herdr_vsock(builder, herdr_socket_path_from_env());
     let claude_paths = host_claude_paths(dirs::home_dir()).ok();
     let creds_src = claude_paths
         .as_ref()
@@ -346,23 +316,17 @@ pub(crate) async fn cmd_agent(app: &App, args: AgentArgs) -> Result<i32> {
         return Ok(0);
     }
     let task = args.task.join(" ");
-    // Same gate the builder used: route active iff HERDR_SOCKET_PATH is set
-    // and a live socket. #131's shim sets it explicitly; default to the host
-    // path string as the guest-side path.
-    let relay = herdr_vsock_route(herdr_socket_path_from_env()).map(|(path, _)| path);
-    let command = agent_launch_command(&task, relay.as_deref());
+    let command = agent_launch_command(&task);
     run_guest(&sandbox, &command, Some(AGENT_WORKDIR), &exec_env).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sandbox::HERDR_VSOCK_PORT;
 
     #[test]
-    fn launch_command_without_relay_is_the_historical_command() {
-        // Invariant: route inactive -> byte-identical to pre-relay behavior.
-        let cmd = agent_launch_command("fix the bug", None);
+    fn launch_command_execs_claude_with_the_task() {
+        let cmd = agent_launch_command("fix the bug");
         assert_eq!(
             cmd,
             vec![
@@ -376,58 +340,13 @@ mod tests {
     }
 
     #[test]
-    fn launch_command_with_relay_starts_socat_and_exports_socket_path() {
-        let sock = PathBuf::from("/home/u/.config/herdr/herdr.sock");
-        let cmd = agent_launch_command("fix the bug", Some(&sock));
-
-        assert_eq!(cmd[0], "sh");
-        assert_eq!(cmd[1], "-c");
-        let script = &cmd[2];
-        assert!(script.contains("HERDR_SOCKET_PATH=$1"));
-        assert!(script.contains("export HERDR_SOCKET_PATH"));
-        // Fresh guests lack the host path's parent dir; the bind needs it.
-        assert!(script.contains("mkdir -p \"${HERDR_SOCKET_PATH%/*}\""));
-        assert!(script.contains("UNIX-LISTEN:$HERDR_SOCKET_PATH,fork,reuseaddr"));
-        assert!(script.contains(&format!("VSOCK-CONNECT:2:{HERDR_VSOCK_PORT}")));
-        // socat stdout is quiet but stderr survives for diagnostics.
-        assert!(script.contains(&format!(
-            "VSOCK-CONNECT:2:{HERDR_VSOCK_PORT}\" >/dev/null &"
-        )));
-        assert!(!script.contains(">/dev/null 2>&1 &"));
-        // socat failure must never break the launch.
-        assert!(script.contains("command -v socat"));
-        assert!(script.contains("warning:"));
-        // The agent still execs last, with the task as $2.
-        assert!(
-            script.ends_with("IS_SANDBOX=1 exec claude -p \"$2\" --dangerously-skip-permissions")
-        );
-        // Socket path and task travel as positional args (no shell quoting of host paths).
-        assert_eq!(cmd[3], "sh");
-        assert_eq!(cmd[4], sock.to_string_lossy());
-        assert_eq!(cmd[5], "fix the bug");
-    }
-
-    #[test]
-    fn launch_command_pins_vsock_port_literal() {
-        // The guest shim and the host route must agree; pin the wire value.
-        let cmd = agent_launch_command("t", Some(&PathBuf::from("/s")));
-        assert!(cmd[2].contains("VSOCK-CONNECT:2:47100"));
-    }
-
-    #[test]
     fn parse_exec_env_accepts_pairs_and_preserves_value_equals() {
-        let env = parse_exec_env(&[
-            "HERDR_PANE_ID=pane-42".to_string(),
-            "HERDR_ENV=1".to_string(),
-            "TOKEN=a=b=c".to_string(),
-        ])
-        .unwrap();
+        let env = parse_exec_env(&["MY_TOKEN=a=b=c".to_string(), "OTHER=1".to_string()]).unwrap();
         assert_eq!(
             env,
             vec![
-                ("HERDR_PANE_ID".to_string(), "pane-42".to_string()),
-                ("HERDR_ENV".to_string(), "1".to_string()),
-                ("TOKEN".to_string(), "a=b=c".to_string()),
+                ("MY_TOKEN".to_string(), "a=b=c".to_string()),
+                ("OTHER".to_string(), "1".to_string()),
             ]
         );
     }
