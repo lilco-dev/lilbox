@@ -204,6 +204,9 @@ pub(crate) async fn ssh(app: &App, args: ExecArgs) -> Result<i32> {
     if let (Some(node), Some(ts)) = (row.tailscale_node.as_deref(), app.tailscale.as_deref()) {
         let status = ProcessCommand::new(ts)
             .args(tailscale_ssh_args(node, &args.cmd))
+            // OpenSSH launches Tailscale's ProxyCommand via $SHELL, which
+            // may be the lilbox gateway wrapper rather than a real shell.
+            .env("SHELL", "/bin/sh")
             .status()
             .with_context(|| format!("could not run '{}'", ts.display()))?;
         return Ok(status.code().unwrap_or(1));

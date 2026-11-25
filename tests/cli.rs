@@ -194,6 +194,51 @@ fn join_leave_and_fork_reject_unknown_boxes() {
     }
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn gateway_attaches_to_a_tailnet_box_with_a_real_proxy_shell() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let home = temp_home("gateway-tailnet");
+    let state = home.join("state");
+    let cmd = || {
+        let mut cmd = lilbox_cmd(&home);
+        cmd.env("XDG_STATE_HOME", &state);
+        cmd
+    };
+    let init = cmd()
+        .env_remove("SSH_ORIGINAL_COMMAND")
+        .arg("gateway")
+        .output()
+        .unwrap();
+    assert!(init.status.success(), "{:?}", init);
+    let db = rusqlite::Connection::open(state.join("lilbox/state.db")).unwrap();
+    db.execute(
+        "INSERT INTO boxes(name,image,created,tailscale_node) VALUES (?1,?2,?3,?4)",
+        ["my-box", "debian", "2024-01-01", "my-box.example.ts.net"],
+    )
+    .unwrap();
+
+    let tailscale = home.join("tailscale");
+    fs::write(
+        &tailscale,
+        "#!/bin/sh\n\
+         test \"$SHELL\" = /bin/sh && test \"$#\" = 2 && \
+         test \"$1\" = ssh && test \"$2\" = root@my-box.example.ts.net\n",
+    )
+    .unwrap();
+    fs::set_permissions(&tailscale, fs::Permissions::from_mode(0o755)).unwrap();
+    let attach = cmd()
+        .env("PATH", &home)
+        .env("SHELL", "/usr/local/bin/lilbox-gateway-shell")
+        .env("SSH_ORIGINAL_COMMAND", "my-box")
+        .arg("gateway")
+        .output()
+        .unwrap();
+    fs::remove_dir_all(&home).unwrap();
+    assert!(attach.status.success(), "{:?}", attach);
+}
+
 #[test]
 fn completions_is_discoverable_in_help() {
     let home = temp_home("completions-help");
