@@ -193,6 +193,7 @@ pub(crate) async fn cmd_gateway(app: &App, args: crate::cli::GatewayArgs) -> Res
                     attach: true,
                     default_image,
                     remote: true,
+                    ..Default::default()
                 },
             )
             .await

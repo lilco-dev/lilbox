@@ -1,10 +1,13 @@
 use std::env;
 use std::io::IsTerminal;
+use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::Local;
+use microsandbox::SecretSource;
 use rusqlite::params;
 
+use super::agent::{SecretEnv, WORKSPACE};
 use crate::app::App;
 use crate::cli::NewArgs;
 use crate::overlay;
@@ -15,6 +18,7 @@ use crate::tailscale::{
     mint_ephemeral_key, require_auth_key, resolve_join_mode, resolve_tag, validate_tag,
     wants_tailnet,
 };
+
 use crate::util::{
     DEFAULT_GUEST_PORT, DEFAULT_IMAGE, alloc_host_port, bold, cyan, dim, green, now, or_cleanup,
     parse_duration, parse_memory, random_name,
@@ -34,6 +38,11 @@ pub(crate) struct NewOptions {
     /// Running under `lilbox gateway`: connection hints print the remote
     /// (`ssh <host> <box>`) form, not the local CLI form.
     pub(crate) remote: bool,
+    /// Host directory mounted only by the local agent command. Not an SSH
+    /// gateway capability or a `new` CLI flag.
+    pub(crate) workspace: Option<PathBuf>,
+    /// Host-side credential references for a local agent VM.
+    pub(crate) agent_secrets: Vec<SecretEnv>,
 }
 
 /// How `cmd_new` should source the box image, in precedence order. Pure so the
@@ -87,7 +96,8 @@ pub(crate) async fn cmd_new(app: &App, args: NewArgs, opts: NewOptions) -> Resul
     let want_tailnet = wants_tailnet(
         args.tailnet,
         args.tailnet_tag.as_deref(),
-        config.tailscale.auto,
+        // Workspace VMs have host files mounted; don't auto-join the tailnet.
+        config.tailscale.auto.filter(|_| opts.workspace.is_none()),
     );
     let mut key_env = DEFAULT_AUTH_KEY_ENV.to_string();
     let mut minted_key: Option<String> = None;
@@ -239,7 +249,7 @@ pub(crate) async fn cmd_new(app: &App, args: NewArgs, opts: NewOptions) -> Resul
     if let Some(t) = &template {
         println!("    {:9} {}", dim("template"), t.name);
     }
-    let builder = configure_builder(SandboxSettings {
+    let mut builder = configure_builder(SandboxSettings {
         name: &name,
         image: &image,
         host_port,
@@ -249,6 +259,20 @@ pub(crate) async fn cmd_new(app: &App, args: NewArgs, opts: NewOptions) -> Resul
         idle_timeout: idle,
         volume: volume.as_deref(),
     });
+    if let Some(workspace) = &opts.workspace {
+        builder = builder
+            .workdir(WORKSPACE)
+            .volume(WORKSPACE, |m| m.bind(workspace));
+    }
+    for secret in opts.agent_secrets {
+        builder = builder.secret(|s| {
+            s.env(&secret.var)
+                .allow_host(secret.host)
+                .source(SecretSource::Env {
+                    var: secret.var.clone(),
+                })
+        });
+    }
 
     // Register termination handlers BEFORE the VM exists, so a (rare) signal
     // registration failure aborts here rather than orphaning a box. On the

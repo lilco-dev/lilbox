@@ -15,6 +15,7 @@ pub(crate) const BUILTIN_NAMES: &[&str] = &[
     "fullstack-web",
     "base-debian",
     "agent-sandbox",
+    "exeuntu",
     "desktop-vm",
 ];
 
@@ -63,6 +64,7 @@ pub(crate) fn builtin_template(name: &str) -> Option<Template> {
             include_str!("../templates/agent-sandbox/template.json"),
             include_str!("../templates/agent-sandbox/setup.sh"),
         ),
+        "exeuntu" => (include_str!("../templates/exeuntu/template.json"), ""),
         "desktop-vm" => (
             include_str!("../templates/desktop-vm/template.json"),
             include_str!("../templates/desktop-vm/setup.sh"),
@@ -74,7 +76,7 @@ pub(crate) fn builtin_template(name: &str) -> Option<Template> {
         source: "builtin",
         dir: None,
         manifest: serde_json::from_str(manifest).expect("valid built-in template"),
-        setup: Some(setup.into()),
+        setup: (!setup.is_empty()).then(|| setup.into()),
         dockerfile: false,
     })
 }

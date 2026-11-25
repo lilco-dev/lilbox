@@ -50,7 +50,7 @@ Templates & images:
   image        Manage the embedded microsandbox image cache
 
 Agents:
-  agent        Run Claude Code in a microVM against a mounted workspace
+  agent        Run a coding agent in a microVM against a mounted workspace
   hc           Install the herdr-core agent template (`lilbox hc --help`)
 
 Admin:
@@ -109,7 +109,7 @@ pub(crate) enum Command {
     Logs(LogsArgs),
     /// Re-run a box template's setup script.
     Provision { name: String },
-    /// Run Claude Code in a microVM against a mounted workspace.
+    /// Run a coding agent in a microVM against a mounted workspace.
     Agent(AgentArgs),
     /// herdr-core (hc) integration.
     Hc(HcArgs),
@@ -274,7 +274,7 @@ pub(crate) enum TemplateCommand {
     Remove { name: String },
 }
 
-#[derive(Args)]
+#[derive(Args, Default)]
 pub(crate) struct NewArgs {
     pub(crate) name: Option<String>,
     /// exe.dev grammar: `new --name=foo` (positional still works; clap
@@ -356,28 +356,33 @@ pub(crate) struct LogsArgs {
 
 #[derive(Args)]
 pub(crate) struct AgentArgs {
+    /// Guest executable, e.g. claude, codex, pi, or opencode.
+    #[arg(default_value = "claude")]
+    pub(crate) agent: String,
+    #[arg(long)]
     pub(crate) name: Option<String>,
-    #[arg(long, default_value = DEFAULT_IMAGE)]
-    pub(crate) image: String,
+    /// Use an alternate image that already contains the agent.
+    #[arg(long)]
+    pub(crate) image: Option<String>,
     #[arg(long, conflicts_with = "clone")]
     pub(crate) workspace: Option<PathBuf>,
     #[arg(long)]
     pub(crate) clone: Option<String>,
     #[arg(long)]
     pub(crate) agents_file: Option<PathBuf>,
-    #[arg(long, default_value = "ANTHROPIC_API_KEY")]
-    pub(crate) key_env: String,
-    #[arg(long, default_value = "api.anthropic.com")]
-    pub(crate) key_host: String,
-    /// Don't inherit the host's Claude login into the box; fall back to ANTHROPIC_API_KEY injection.
-    #[arg(long)]
-    pub(crate) no_claude_config: bool,
+    /// Boot the workspace VM without starting the agent.
+    #[arg(long, conflicts_with_all = ["env", "agent_args"])]
+    pub(crate) prepare: bool,
+    /// Use a host environment variable as a secret for one exact HTTPS host.
+    #[arg(long, value_name = "VAR=HOST")]
+    pub(crate) secret_env: Vec<String>,
     /// Extra KEY=VAL environment for the guest agent exec. Transient: passed to
     /// the exec call only, never persisted in the sandbox config.
     #[arg(long = "env", value_name = "KEY=VAL")]
     pub(crate) env: Vec<String>,
+    /// Arguments passed directly to the guest agent executable.
     #[arg(last = true)]
-    pub(crate) task: Vec<String>,
+    pub(crate) agent_args: Vec<String>,
 }
 
 #[derive(Subcommand)]

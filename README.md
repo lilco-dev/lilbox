@@ -157,7 +157,7 @@ lilbox run -- python3 -c 'print("ran in a throwaway microVM")'
 | `lilbox logs NAME [-f] [--tail N] [--source S]` | Show or follow captured output |
 | `lilbox run [--image I] -- CMD…` | Ephemeral box: boot, run, discard |
 | `lilbox rebuild NAME [--image X]` | Recreate a box on a new/updated image, keeping its home volume |
-| `lilbox agent [NAME] [--workspace D\|--clone URL] [--agents-file F] -- task` | Run a coding agent (Claude Code) in a box against a mounted workspace |
+| `lilbox agent [AGENT] [--name NAME] [--workspace D\|--clone URL] [-- ARGS...]` | Start the chosen coding agent in an exeuntu VM with a mounted workspace |
 | `lilbox expose NAME [--public]` | Publish the box over HTTPS (tailnet, or Funnel with `--public`) |
 | `lilbox unexpose NAME` | Stop publishing |
 | `lilbox join NAME [--tailnet-tag TAG]` | Join a box to the tailnet as its own node (for boxes booted without `--tailnet`, or whose join failed) |
@@ -628,22 +628,43 @@ data is preserved and a bare `lilbox rebuild NAME` retries.
 
 ## Agent-in-a-box
 
-`lilbox agent` runs a coding agent (Claude Code) **inside** a microVM against a
-mounted workspace — safe by construction, since AI-generated code runs behind
-the hypervisor boundary, not on your host.
+`lilbox agent` boots an [exeuntu](https://github.com/boldsoftware/exeuntu) box
+and runs the selected agent inside it. The pinned upstream image includes
+Claude Code, Codex, Pi, and OpenCode; lilbox does not install them at boot.
+Use `lilbox new --template exeuntu` if you just want the image and a shell.
 
 ```bash
-lilbox agent -- "add a test for the parser"        # agent works in the current dir
-lilbox agent --clone https://github.com/you/repo -- "fix the failing CI"
-lilbox agent --agents-file ./AGENTS.md -- "..."     # pass repo agent instructions
+lilbox agent claude                              # Claude is the default
+lilbox agent pi --name pi-work                   # select Pi and name the VM
+lilbox agent codex --clone https://github.com/you/repo
+lilbox agent claude -- -p 'Add a parser test'    # pass native agent arguments
 ```
 
-The workspace is bind-mounted at `/workspace`, so the agent's edits appear on
-the host **as it works** — retrieve them directly (or `lilbox expose` what it built).
-Bring your own key: `export ANTHROPIC_API_KEY=…` and it's injected via
-the SDK's `secret_env` API — sent only to `api.anthropic.com`
-and **never written into the box's image or state**. Override with
-`--key-env`/`--key-host`.
+The workspace is bind-mounted read/write at `/workspace`, so the agent's edits
+appear on the host as it works. Use a separate worktree for isolated edits.
+Host credentials are not copied into the VM; sign in inside the box or configure
+authentication explicitly for the chosen agent. `--prepare` boots the box
+without launching an agent, and `--image` selects an alternate prebuilt image.
+If upgrading scripts, pass box names with `--name` (the positional selects the
+agent now), and pass native agent arguments after `--`.
+
+### Agent credentials
+
+For a subscription or OAuth login, sign in inside the VM and reuse that box.
+For unattended runs, load a dedicated API key into the **host** environment,
+then opt into a provider binding by variable name:
+
+```bash
+lilbox agent pi --secret-env OPENAI_API_KEY=api.openai.com
+lilbox agent claude --secret-env ANTHROPIC_API_KEY=api.anthropic.com
+```
+
+Repeat `--secret-env VAR=HOST` for additional keys. `HOST` is an exact DNS
+hostname, not a URL or wildcard. The guest receives a placeholder; microsandbox
+substitutes the real value on supported HTTPS requests to the specified host.
+The agent can still use the key and incur charges. The binding is created with
+the box, and the host environment needs to supply the key whenever the VM
+starts. Don't pass raw keys with `--env` or mount your host agent config.
 
 ## Use it from herdr-core (hc)
 
@@ -663,8 +684,12 @@ directory (`hd-<slug>-<hash>`, same as the retired herdr plugin, so old boxes
 are reused), boots it with the directory bind-mounted at `/workspace` if it's
 missing, and execs the agent inside. The task arrives on stdin and the box
 stays up between runs — stop it with `lilbox stop` when you're done.
-`LILBOX_AGENT_CMD` (default `claude`) and `LILBOX_IMAGE` (default `python`)
-configure the guest. Requires `jq`.
+`LILBOX_AGENT_CMD` (default `claude`) selects the executable, and `LILBOX_IMAGE`
+overrides the exeuntu image for newly created boxes. Requires `jq`. Re-run
+`lilbox hc install` after upgrading; existing boxes keep their original image.
+For API-key auth, configure `LILBOX_AGENT_SECRET_ENVS` and the referenced key
+variables in the environment of the **hc daemon that runs the child** (see
+[the launcher configuration](contrib/hc/#configuration)).
 
 ## Configuration
 

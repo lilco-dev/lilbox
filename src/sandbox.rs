@@ -6,10 +6,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use microsandbox::{
-    ExecEvent, MicrosandboxError, Sandbox, SecretSource,
-    sandbox::{SandboxBuilder, SandboxStatus, SecretBuilder},
-};
+use microsandbox::{ExecEvent, MicrosandboxError, Sandbox, sandbox::SandboxStatus};
 
 use crate::app::App;
 use crate::cli::{ExecArgs, RunArgs};
@@ -321,18 +318,6 @@ pub(crate) fn configure_builder(
         });
     }
     builder
-}
-
-fn secret_shape(secret: SecretBuilder, env: &str, host: &str) -> SecretBuilder {
-    secret.env(env).allow_host(host)
-}
-
-pub(crate) fn with_secret_env(builder: SandboxBuilder, env: &str, host: &str) -> SandboxBuilder {
-    builder.secret(|secret| {
-        secret_shape(secret, env, host).source(SecretSource::Env {
-            var: env.to_owned(),
-        })
-    })
 }
 
 pub(crate) async fn stop_and_remove(name: &str) -> Result<()> {

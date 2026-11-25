@@ -29,10 +29,10 @@ then pastes the task into its stdin. The entrypoint:
    sha256(path)>`. Same scheme as the retired herdr plugin, so old boxes are
    reused rather than orphaned; the hash keeps same-basename worktrees from
    colliding.
-2. Boots the box if it's missing (`lilbox agent --workspace <path>` — the
-   directory is bind-mounted at `/workspace`), starts it if it's stopped, and
-   recreates it if its record is stale (`gone`).
-3. `exec lilbox attach <box> -- sh -lc 'cd /workspace; exec <agent>'` — a raw PTY
+2. Boots an exeuntu box if it's missing (`lilbox agent <agent> --prepare
+   --workspace <path>`), starts it if it's stopped, and recreates it if its
+   record is stale (`gone`). The directory is bind-mounted at `/workspace`.
+3. `lilbox attach <box> -- ...` — a raw PTY
    bridge, so the agent's OSC 7501 escapes reach the hc core and the pasted
    task reaches the agent.
 
@@ -46,10 +46,19 @@ Environment variables, read by the entrypoint at run time:
 |---|---|---|
 | `LILBOX_BIN` | `lilbox` | path to the lilbox binary |
 | `LILBOX_AGENT_CMD` | `claude` | agent exec'd inside the box |
-| `LILBOX_IMAGE` | `python` | image for newly created boxes |
+| `LILBOX_IMAGE` | exeuntu | image for newly created boxes |
+| `LILBOX_AGENT_SECRET_ENVS` | unset | whitespace-separated `VAR=HOST` API-key bindings for newly created boxes |
 
 Requires `jq` (box status lookup). `lilbox hc install` must be re-run after
-upgrading lilbox to pick up entrypoint changes.
+upgrading lilbox to pick up entrypoint changes. Existing boxes keep their
+original image; the selected executable must already exist inside them.
+For OAuth or subscription auth, log in inside the box; host logins aren't
+copied. For API keys, set e.g.
+`LILBOX_AGENT_SECRET_ENVS=OPENAI_API_KEY=api.openai.com` and provide
+`OPENAI_API_KEY` from your secret store in the **hc daemon's** environment.
+The configuration contains only the variable name and provider hostname, never
+the key. Existing boxes keep their bindings; use a new workspace box to change
+them. Keep the referenced variables available to hc when it restarts a box.
 
 ## Files
 
