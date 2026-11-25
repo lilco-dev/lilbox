@@ -194,6 +194,59 @@ fn join_leave_and_fork_reject_unknown_boxes() {
     }
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn attach_uses_the_local_runtime_even_for_tailnet_boxes() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let home = temp_home("attach-tailnet");
+    let state = home.join("state");
+    let cmd = || {
+        let mut cmd = lilbox_cmd(&home);
+        cmd.env("XDG_STATE_HOME", &state)
+            .env("MSB_HOME", home.join("msb"))
+            .env_remove("SSH_ORIGINAL_COMMAND");
+        cmd
+    };
+    let init = cmd().arg("gateway").output().unwrap();
+    assert!(init.status.success(), "{init:?}");
+    rusqlite::Connection::open(state.join("lilbox/state.db"))
+        .unwrap()
+        .execute(
+            "INSERT INTO boxes(name,image,created,tailscale_node) VALUES (?1,?2,?3,?4)",
+            ["my-box", "debian", "2024-01-01", "my-box.example.ts.net"],
+        )
+        .unwrap();
+
+    // If attach tries to SSH to the guest, the fake client exits successfully.
+    // The local path should instead report there is no VM for this metadata row.
+    let tailscale = home.join("tailscale");
+    fs::write(&tailscale, "#!/bin/sh\nexit 0\n").unwrap();
+    fs::set_permissions(&tailscale, fs::Permissions::from_mode(0o755)).unwrap();
+    let gateway = cmd()
+        .env("PATH", &home)
+        .env("SSH_ORIGINAL_COMMAND", "my-box")
+        .arg("gateway")
+        .output()
+        .unwrap();
+    let local = ["attach", "ssh"].map(|verb| {
+        cmd()
+            .env("PATH", &home)
+            .args([verb, "my-box"])
+            .output()
+            .unwrap()
+    });
+    fs::remove_dir_all(&home).unwrap();
+    for output in std::iter::once(gateway).chain(local) {
+        assert!(!output.status.success(), "{output:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains("microsandbox has no box named 'my-box'"),
+            "{output:?}"
+        );
+    }
+}
+
 #[test]
 fn completions_is_discoverable_in_help() {
     let home = temp_home("completions-help");

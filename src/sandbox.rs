@@ -13,7 +13,6 @@ use microsandbox::{
 
 use crate::app::App;
 use crate::cli::{ExecArgs, RunArgs};
-use crate::tailscale::tailscale_ssh_args;
 use crate::util::{parse_duration, random_name};
 
 const DEFAULT_HOME: &str = "/root";
@@ -199,29 +198,21 @@ pub(crate) async fn exec(app: &App, args: ExecArgs) -> Result<i32> {
     .await
 }
 
-pub(crate) async fn ssh(app: &App, args: ExecArgs) -> Result<i32> {
-    let row = app.require_row(&args.name)?;
-    if let (Some(node), Some(ts)) = (row.tailscale_node.as_deref(), app.tailscale.as_deref()) {
-        let status = ProcessCommand::new(ts)
-            .args(tailscale_ssh_args(node, &args.cmd))
-            .status()
-            .with_context(|| format!("could not run '{}'", ts.display()))?;
-        return Ok(status.code().unwrap_or(1));
-    }
-
-    // microsandbox's interactive attach re-opens stdin's tty by path to get an
-    // independent nonblocking fd. Under Tailscale SSH the pty slave stays
-    // root-owned (mode 600), so that open fails with EACCES. Re-exec under a
-    // fresh script(1) pty — allocated as our user — so the re-open works.
-    if args.cmd.is_empty() && stdin_tty_reopen_blocked() {
-        return reexec_under_pty_shim(&args.name);
-    }
-
+pub(crate) async fn attach(app: &App, args: ExecArgs) -> Result<i32> {
     let sandbox = connect_box(app, &args.name, true).await?;
-    if args.cmd.is_empty() {
+    attach_guest(&sandbox, &args.name, &args.cmd).await
+}
+
+pub(crate) async fn attach_guest(sandbox: &Sandbox, name: &str, cmd: &[String]) -> Result<i32> {
+    // microsandbox re-opens stdin's tty by path. Under Tailscale SSH the
+    // slave can be root-owned (mode 600), so allocate a PTY we can re-open.
+    if (cmd.is_empty() || io::stdout().is_terminal()) && stdin_tty_reopen_blocked() {
+        return reexec_under_pty_shim(name, cmd);
+    }
+    if cmd.is_empty() {
         return Ok(sandbox.attach_shell().await?);
     }
-    run_guest(&sandbox, &args.cmd, None, &[]).await
+    run_guest(sandbox, cmd, None, &[]).await
 }
 
 /// True when stdin is a tty we cannot re-open by path (e.g. a Tailscale SSH
@@ -248,20 +239,29 @@ fn stdin_tty_reopen_blocked() -> bool {
     std::fs::File::open(path).is_err()
 }
 
-/// Re-run `lilbox ssh <name>` under script(1), which allocates a pty owned by
-/// our user. SHELL must point at a real shell: under the login-shell gateway
-/// deployment the user's login shell *is* lilbox, and script(1) spawns $SHELL.
+/// Re-run `lilbox attach` under script(1) to allocate a PTY owned by our user.
+/// Use a real shell for script(1), not the gateway account's login shell.
 #[cfg(unix)]
-fn reexec_under_pty_shim(name: &str) -> Result<i32> {
+fn reexec_under_pty_shim(name: &str, cmd: &[String]) -> Result<i32> {
     let exe = std::env::current_exe().context("resolve current exe for the pty shim")?;
-    let quoted = shlex::try_quote(name).context("box name is not shell-quotable")?;
-    let inner = format!("{} ssh {}", exe.display(), quoted);
+    let exe = exe
+        .to_str()
+        .context("pty shim requires a UTF-8 executable path")?;
+    let mut argv = vec![exe, "attach", name];
+    if !cmd.is_empty() {
+        argv.push("--");
+        argv.extend(cmd.iter().map(String::as_str));
+    }
+    let mut script = ProcessCommand::new("script");
     #[cfg(target_os = "macos")]
-    let argv = ["-q", "/dev/null", &inner];
+    script.args(["-q", "/dev/null"]).args(argv);
     #[cfg(not(target_os = "macos"))]
-    let argv = ["-qefc", &inner, "/dev/null"];
-    let status = ProcessCommand::new("script")
-        .args(argv)
+    script.args([
+        "-qefc",
+        &shlex::try_join(argv).context("pty shim arguments are not shell-quotable")?,
+        "/dev/null",
+    ]);
+    let status = script
         .env("SHELL", "/bin/sh")
         .env("LILBOX_PTY_SHIM", "1")
         .status()

@@ -9,7 +9,7 @@ use crate::app::App;
 use crate::cli::NewArgs;
 use crate::overlay;
 use crate::provision::{build_template_image, provision_sandbox};
-use crate::sandbox::{SandboxSettings, configure_builder, stop_and_remove};
+use crate::sandbox::{SandboxSettings, attach_guest, configure_builder, stop_and_remove};
 use crate::tailscale::{
     DEFAULT_AUTH_KEY_ENV, JoinMode, box_display_url, is_valid_env_var_name, join_box,
     mint_ephemeral_key, require_auth_key, resolve_join_mode, resolve_tag, validate_tag,
@@ -329,7 +329,7 @@ pub(crate) async fn cmd_new(app: &App, args: NewArgs, opts: NewOptions) -> Resul
         // so Ctrl-C in the interactive session ends the shell rather than
         // reaping a fully-provisioned box.
         if std::io::stdin().is_terminal() {
-            return Ok(sandbox.attach_shell().await?);
+            return attach_guest(&sandbox, &name, &[]).await;
         }
         // No TTY (scripted `ssh host new ... < /dev/null`): can't attach, so
         // print how to reach the box instead.
@@ -338,14 +338,14 @@ pub(crate) async fn cmd_new(app: &App, args: NewArgs, opts: NewOptions) -> Resul
             None if opts.remote => {
                 println!("{name} ready (attach with: {})", remote_ssh_hint(&name))
             }
-            None => println!("{name} ready (reach it with: lilbox ssh {name})"),
+            None => println!("{name} ready (reach it with: lilbox attach {name})"),
         }
         return Ok(0);
     }
 
     println!(
-        "    {:9} lilbox ssh {name}\n    {:9} lilbox exec {name} -- <cmd>",
-        dim("ssh"),
+        "    {:9} lilbox attach {name}\n    {:9} lilbox exec {name} -- <cmd>",
+        dim("attach"),
         dim("exec")
     );
     if node.is_none() {

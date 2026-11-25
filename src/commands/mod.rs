@@ -37,7 +37,7 @@ pub(crate) async fn dispatch(app: &App, command: Command) -> Result<i32> {
         Command::Template(args) => template::cmd_template(app, args.command)?,
         Command::Provision { name } => lifecycle::provision_cmd(app, name).await?,
         Command::Exec(args) => return sandbox::exec(app, args).await,
-        Command::Ssh(args) => return sandbox::ssh(app, args).await,
+        Command::Attach(args) => return sandbox::attach(app, args).await,
         Command::Cp { src, dst } => cp::cp(app, src, dst).await?,
         Command::Logs(args) => cmd_logs(app, args).await?,
         Command::Run(args) => return sandbox::run(app, args).await,

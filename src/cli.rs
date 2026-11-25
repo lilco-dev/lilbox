@@ -19,7 +19,7 @@ Boxes:
   rebuild      Recreate a box on an image while preserving its home volume
 
 Using a box:
-  ssh          Open a shell (or run a command) in a box
+  attach       Open a shell (or run a command) in a box
   exec         Run a command in a box
   cp           Copy a file to or from a box (box side is NAME:/path)
   logs         Show a box's captured output
@@ -98,8 +98,9 @@ pub(crate) enum Command {
     },
 
     // Using a box
-    /// Open a shell (or run a command) in a box.
-    Ssh(ExecArgs),
+    /// Open a shell (or run a command) in a box via the local runtime.
+    #[command(visible_alias = "ssh")]
+    Attach(ExecArgs),
     /// Run a command in a box.
     Exec(ExecArgs),
     /// Copy a file to or from a box (box side is NAME:/path).
@@ -309,7 +310,7 @@ pub(crate) struct NewArgs {
     #[arg(long, visible_alias = "tailscale")]
     pub(crate) tailnet: bool,
     /// Attach to a guest shell once the box is up. Used by the gateway server
-    /// for interactive sessions; local `lilbox ssh <box>` is the normal path.
+    /// for interactive sessions; local `lilbox attach <box>` is the normal path.
     #[arg(long, hide = true)]
     pub(crate) attach: bool,
 }

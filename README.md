@@ -125,7 +125,7 @@ left behind, empty.
 ```bash
 lilbox new web                       # boot a persistent python microVM named "web"
 lilbox exec web -- python3 -V        # run a command inside it
-lilbox ssh web                       # drop into a shell
+lilbox attach web                    # drop into a shell
 
 # start something listening on the box's port 8000, then:
 lilbox expose web                    # -> https://<you>.<tailnet>.ts.net:8443/
@@ -152,7 +152,7 @@ lilbox run -- python3 -c 'print("ran in a throwaway microVM")'
 | `lilbox ls [--json]` | List boxes with live status + published URLs (`--json` for scripting) |
 | `lilbox gc` | Reap boxes whose `--ttl` has elapsed (cron-friendly) |
 | `lilbox exec NAME -- CMD…` | Run a command inside a box |
-| `lilbox ssh NAME [-- CMD]` | Interactive shell (or one-shot command) |
+| `lilbox attach NAME [-- CMD]` | Open a shell (or run a command) via the local runtime; `lilbox ssh` is an alias |
 | `lilbox cp SRC DST` | Copy files to/from a box (box side = `NAME:/path`) |
 | `lilbox logs NAME [-f] [--tail N] [--source S]` | Show or follow captured output |
 | `lilbox run [--image I] -- CMD…` | Ephemeral box: boot, run, discard |
@@ -228,8 +228,8 @@ open internet. State (name → image → host port → serve port → URL) lives
 The default images (`python`, `alpine`, …) are published from the *host* via
 `tailscale serve`. The [`lilbox-box`](images/lilbox-box/) image instead bakes
 `tailscale` + `tailscaled` and a first-boot bring-up hook *into the box*, so it
-can join your tailnet as its own node — the foundation for per-box hostnames,
-keyless `lilbox ssh`, and identity-based auth (epic #2).
+can join your tailnet as its own node, with a per-box hostname and direct
+Tailscale SSH controlled by your tailnet policy.
 
 ```bash
 images/lilbox-box/build.sh          # docker build -> lilbox image load
@@ -397,7 +397,8 @@ you pick (cached after the first run).
 3. Use it:
    - `lilbox url dev` → `https://dev.<tailnet>.ts.net/`, serving the app on
      guest port 8000
-   - `lilbox ssh dev` — Tailscale SSH, keyless
+   - `lilbox attach dev` — start a shell from the VM host, whether or not the box has joined the tailnet
+   - `tailscale ssh root@dev.<tailnet>.ts.net` — SSH directly to the guest from a permitted tailnet client
 4. `lilbox rm dev` — deregisters the node.
 
 Troubleshooting: a `could not join tailnet` warning is almost always a
@@ -458,10 +459,12 @@ ssh internal-host rm my-box
 ```
 
 **Direct attach:** a leading token that isn't a subcommand but names an
-existing box is shorthand for `ssh <box>` — so after `new` prints
-`my-box ready (attach with: ssh -p 2222 <host> my-box)`, that command is all
-you need. Real subcommands win the name: a box literally named `ls` stays
-reachable via `ssh internal-host ssh ls`.
+existing box is shorthand for `attach <box>`. The gateway starts a shell via
+microsandbox on the host; it does not open a second SSH connection, even for
+boxes that have joined the tailnet. Access is governed by the host gateway's
+SSH policy, not the guest's Tailscale SSH policy. Real subcommands win the
+name: a box literally named `ls` stays reachable via
+`ssh -t internal-host attach ls`.
 
 **Grammar is identical to the local CLI**, so the positional is the **box
 name**, not the image: `new --tailscale python` makes a box *named* `python`
@@ -573,7 +576,7 @@ Usage is the forced-command grammar with the user fixed:
 ```bash
 ssh lilbox@host ls
 ssh lilbox@host new --tailscale          # provision a box
-ssh lilbox@host my-box                   # attach (direct-attach shorthand)
+ssh -t lilbox@host my-box                # attach through the host, no guest SSH
 ssh lilbox@host my-box -- htop           # one command inside a box
 ```
 
@@ -615,7 +618,7 @@ data is preserved and a bare `lilbox rebuild NAME` retries.
 - **TTL:** `lilbox new web --ttl 2h` auto-expires the box; `lilbox gc` (run it from cron)
   reaps expired boxes. `lilbox run --ttl 30m` bounds an ephemeral box.
 - **Idle suspend:** `lilbox new web --idle-timeout 20m` suspends the box after it's
-  idle (frees RAM); `lilbox exec`/`lilbox ssh` **transparently resume** it (~1–2s). A box
+  idle (frees RAM); `lilbox exec`/`lilbox attach` **transparently resume** it (~1–2s). A box
   you `lilbox stop` yourself is never auto-resumed.
 - **Defaults & caps:** `~/.config/lilbox/config.toml` sets defaults for
   `image`/`port`/`cpus`/`memory`/`ttl`/`idle_timeout` and caps

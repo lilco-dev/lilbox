@@ -143,10 +143,10 @@ fn agent_entrypoint_creates_box_then_attaches_agent() {
             "python"
         ]
     );
-    let ssh_at = flat.iter().position(|a| *a == "ssh").unwrap();
-    assert_eq!(&flat[ssh_at..ssh_at + 2], ["ssh", name.as_str()]);
+    let attach_at = flat.iter().position(|a| *a == "attach").unwrap();
+    assert_eq!(&flat[attach_at..attach_at + 2], ["attach", name.as_str()]);
     assert!(
-        flat[ssh_at..].windows(2).any(|w| w == ["sh", "claude"]),
+        flat[attach_at..].windows(2).any(|w| w == ["sh", "claude"]),
         "attach must exec the default agent: {flat:?}"
     );
 

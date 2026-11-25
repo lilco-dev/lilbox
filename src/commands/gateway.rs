@@ -31,7 +31,7 @@ fn allowed(command: &Command) -> bool {
     matches!(
         command,
         Command::New(_)
-            | Command::Ssh(_)
+            | Command::Attach(_)
             | Command::Ls { .. }
             | Command::Stat { .. }
             | Command::Url { .. }
@@ -54,7 +54,7 @@ fn command_label(command: &Command) -> &'static str {
         Command::Auth(_) => "auth",
         Command::Provision { .. } => "provision",
         Command::Exec(_) => "exec",
-        Command::Ssh(_) => "ssh",
+        Command::Attach(_) => "attach",
         Command::Cp { .. } => "cp",
         Command::Logs(_) => "logs",
         Command::Run(_) => "run",
@@ -87,9 +87,9 @@ fn command_label(command: &Command) -> &'static str {
 /// make parsing fail, never execute anything.
 ///
 /// exe.dev-style direct attach: when the leading token is not a subcommand but
-/// names an existing box (`has_box`), it is rewritten to `ssh <box> --
+/// names an existing box (`has_box`), it is rewritten to `attach <box> --
 /// <rest>`, so `ssh host my-box` lands in the box. Real subcommands always win
-/// — a box named `ls` stays reachable via `ssh host ssh ls`.
+/// — a box named `ls` stays reachable via `ssh host attach ls`.
 pub(crate) fn authorize(
     original: &str,
     has_box: &dyn Fn(&str) -> bool,
@@ -115,8 +115,8 @@ pub(crate) fn authorize_argv(
     }
     if !is_subcommand(&argv[0]) && has_box(&argv[0]) {
         let name = argv.remove(0);
-        let mut rewritten = vec!["ssh".to_string(), name];
-        // `ssh <box> -- <cmd>` needs the separator; respect one the caller
+        let mut rewritten = vec!["attach".to_string(), name];
+        // `attach <box> -- <cmd>` needs the separator; respect one the caller
         // already typed rather than doubling it.
         if !argv.is_empty() && argv[0] != "--" {
             rewritten.push("--".to_string());
@@ -161,7 +161,7 @@ fn print_usage() {
          ssh -t <host> new --tailscale --image node my-box\n  \
          ssh <host> ls\n  \
          ssh <host> rm <box>\n\
-         allowed: new, ssh, ls, stat, url, logs, stop, start, restart, rm"
+         allowed: new, attach (alias: ssh), ls, stat, url, logs, stop, start, restart, rm"
     );
 }
 
@@ -280,7 +280,14 @@ mod tests {
 
     #[test]
     fn lifecycle_commands_are_allowed() {
-        for input in ["ssh foo", "stop foo", "start foo", "restart foo", "rm foo"] {
+        for input in [
+            "attach foo",
+            "ssh foo",
+            "stop foo",
+            "start foo",
+            "restart foo",
+            "rm foo",
+        ] {
             assert!(
                 authorize_no_boxes(input).is_ok(),
                 "{input} should be allowed"
@@ -375,11 +382,11 @@ mod tests {
     fn existing_box_name_attaches_directly() {
         let command = authorize("my-box", &|name| name == "my-box").unwrap();
         match command {
-            Command::Ssh(args) => {
+            Command::Attach(args) => {
                 assert_eq!(args.name, "my-box");
                 assert!(args.cmd.is_empty());
             }
-            other => panic!("expected Ssh, got {}", command_label(&other)),
+            other => panic!("expected Attach, got {}", command_label(&other)),
         }
     }
 
@@ -387,11 +394,11 @@ mod tests {
     fn box_name_with_trailing_tokens_runs_them_in_the_box() {
         let command = authorize("my-box uname -a", &|name| name == "my-box").unwrap();
         match command {
-            Command::Ssh(args) => {
+            Command::Attach(args) => {
                 assert_eq!(args.name, "my-box");
                 assert_eq!(args.cmd, ["uname", "-a"]);
             }
-            other => panic!("expected Ssh, got {}", command_label(&other)),
+            other => panic!("expected Attach, got {}", command_label(&other)),
         }
     }
 
@@ -399,11 +406,11 @@ mod tests {
     fn explicit_separator_is_not_doubled() {
         let command = authorize("my-box -- uname -a", &|name| name == "my-box").unwrap();
         match command {
-            Command::Ssh(args) => {
+            Command::Attach(args) => {
                 assert_eq!(args.name, "my-box");
                 assert_eq!(args.cmd, ["uname", "-a"]);
             }
-            other => panic!("expected Ssh, got {}", command_label(&other)),
+            other => panic!("expected Attach, got {}", command_label(&other)),
         }
     }
 
