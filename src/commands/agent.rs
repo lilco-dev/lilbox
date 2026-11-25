@@ -13,6 +13,43 @@ use super::new::{NewOptions, cmd_new};
 
 pub(crate) const WORKSPACE: &str = "/workspace";
 
+pub(crate) struct SecretEnv {
+    pub(crate) var: String,
+    pub(crate) host: String,
+}
+
+fn parse_secret_env(binding: &str) -> Result<SecretEnv> {
+    let (var, host) = binding
+        .split_once('=')
+        .context("--secret-env expects VAR=HOST")?;
+    if !is_valid_env_var_name(var) {
+        bail!("--secret-env needs a valid environment variable name");
+    }
+    // A bare, exact DNS name only; never accept a wildcard, URL, or port.
+    let valid_host = host.len() <= 253
+        && host.contains('.')
+        && host.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || c == b'-')
+        })
+        && host
+            .rsplit('.')
+            .next()
+            .is_some_and(|last| last.bytes().any(|c| c.is_ascii_alphabetic()));
+    if !valid_host {
+        bail!("--secret-env needs an exact DNS hostname for {var}");
+    }
+    Ok(SecretEnv {
+        var: var.to_owned(),
+        host: host.to_ascii_lowercase(),
+    })
+}
+
 fn parse_exec_env(pairs: &[String]) -> Result<Vec<(String, String)>> {
     pairs
         .iter()
@@ -60,6 +97,27 @@ fn workspace_path(app: &App, workspace: Option<PathBuf>, clone: Option<&str>) ->
 
 pub(crate) async fn cmd_agent(app: &App, args: AgentArgs) -> Result<i32> {
     let exec_env = parse_exec_env(&args.env)?;
+    let configured_secrets = env::var("LILBOX_AGENT_SECRET_ENVS").unwrap_or_default();
+    let mut agent_secrets: Vec<SecretEnv> = Vec::new();
+    for binding in configured_secrets
+        .split_whitespace()
+        .chain(args.secret_env.iter().map(String::as_str))
+    {
+        let secret = parse_secret_env(binding)?;
+        if agent_secrets.iter().any(|entry| entry.var == secret.var) {
+            bail!("secret {} was specified more than once", secret.var);
+        }
+        if exec_env.iter().any(|(key, _)| key == &secret.var) {
+            bail!(
+                "cannot set {} through both --secret-env and --env",
+                secret.var
+            );
+        }
+        if !env::var(&secret.var).is_ok_and(|value| !value.is_empty()) {
+            bail!("host secret {} is not set or is empty", secret.var);
+        }
+        agent_secrets.push(secret);
+    }
     let name = match args.name {
         Some(name) => name,
         None => random_name(app)?,
@@ -84,6 +142,7 @@ pub(crate) async fn cmd_agent(app: &App, args: AgentArgs) -> Result<i32> {
         },
         NewOptions {
             workspace: Some(workspace),
+            agent_secrets,
             ..Default::default()
         },
     )

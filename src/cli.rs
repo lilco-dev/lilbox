@@ -373,6 +373,9 @@ pub(crate) struct AgentArgs {
     /// Boot the workspace VM without starting the agent.
     #[arg(long, conflicts_with_all = ["env", "agent_args"])]
     pub(crate) prepare: bool,
+    /// Use a host environment variable as a secret for one exact HTTPS host.
+    #[arg(long, value_name = "VAR=HOST")]
+    pub(crate) secret_env: Vec<String>,
     /// Extra KEY=VAL environment for the guest agent exec. Transient: passed to
     /// the exec call only, never persisted in the sandbox config.
     #[arg(long = "env", value_name = "KEY=VAL")]

@@ -47,11 +47,18 @@ Environment variables, read by the entrypoint at run time:
 | `LILBOX_BIN` | `lilbox` | path to the lilbox binary |
 | `LILBOX_AGENT_CMD` | `claude` | agent exec'd inside the box |
 | `LILBOX_IMAGE` | exeuntu | image for newly created boxes |
+| `LILBOX_AGENT_SECRET_ENVS` | unset | whitespace-separated `VAR=HOST` API-key bindings for newly created boxes |
 
 Requires `jq` (box status lookup). `lilbox hc install` must be re-run after
 upgrading lilbox to pick up entrypoint changes. Existing boxes keep their
 original image; the selected executable must already exist inside them.
-Authenticate to the agent inside the box; host logins aren't copied.
+For OAuth or subscription auth, log in inside the box; host logins aren't
+copied. For API keys, set e.g.
+`LILBOX_AGENT_SECRET_ENVS=OPENAI_API_KEY=api.openai.com` and provide
+`OPENAI_API_KEY` from your secret store in the **hc daemon's** environment.
+The configuration contains only the variable name and provider hostname, never
+the key. Existing boxes keep their bindings; use a new workspace box to change
+them. Keep the referenced variables available to hc when it restarts a box.
 
 ## Files
 

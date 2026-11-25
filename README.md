@@ -648,6 +648,24 @@ without launching an agent, and `--image` selects an alternate prebuilt image.
 If upgrading scripts, pass box names with `--name` (the positional selects the
 agent now), and pass native agent arguments after `--`.
 
+### Agent credentials
+
+For a subscription or OAuth login, sign in inside the VM and reuse that box.
+For unattended runs, load a dedicated API key into the **host** environment,
+then opt into a provider binding by variable name:
+
+```bash
+lilbox agent pi --secret-env OPENAI_API_KEY=api.openai.com
+lilbox agent claude --secret-env ANTHROPIC_API_KEY=api.anthropic.com
+```
+
+Repeat `--secret-env VAR=HOST` for additional keys. `HOST` is an exact DNS
+hostname, not a URL or wildcard. The guest receives a placeholder; microsandbox
+substitutes the real value on supported HTTPS requests to the specified host.
+The agent can still use the key and incur charges. The binding is created with
+the box, and the host environment needs to supply the key whenever the VM
+starts. Don't pass raw keys with `--env` or mount your host agent config.
+
 ## Use it from herdr-core (hc)
 
 [herdr-core](https://herdr.dev) (`hc`) runs coding agents in daemon-owned
@@ -669,6 +687,9 @@ stays up between runs — stop it with `lilbox stop` when you're done.
 `LILBOX_AGENT_CMD` (default `claude`) selects the executable, and `LILBOX_IMAGE`
 overrides the exeuntu image for newly created boxes. Requires `jq`. Re-run
 `lilbox hc install` after upgrading; existing boxes keep their original image.
+For API-key auth, configure `LILBOX_AGENT_SECRET_ENVS` and the referenced key
+variables in the environment of the **hc daemon that runs the child** (see
+[the launcher configuration](contrib/hc/#configuration)).
 
 ## Configuration
 

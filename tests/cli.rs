@@ -275,6 +275,31 @@ fn agent_selects_claude_or_pi_and_validates_the_workspace_before_boot() {
 }
 
 #[test]
+fn agent_secret_binding_requires_an_exact_host_and_a_host_env_value() {
+    let home = temp_home("agent-secret");
+    for (binding, expected) in [
+        ("LILBOX_TEST_KEY=*.example.com", "exact DNS hostname"),
+        (
+            "LILBOX_TEST_KEY=api.example.com",
+            "LILBOX_TEST_KEY is not set",
+        ),
+    ] {
+        let output = lilbox_cmd(&home)
+            .env_remove("LILBOX_TEST_KEY")
+            .env_remove("LILBOX_AGENT_SECRET_ENVS")
+            .args(["agent", "pi", "--prepare", "--secret-env", binding])
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{output:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains(expected),
+            "{output:?}"
+        );
+    }
+    let _ = fs::remove_dir_all(&home);
+}
+
+#[test]
 fn completions_is_discoverable_in_help() {
     let home = temp_home("completions-help");
     let output = lilbox_cmd(&home).arg("--help").output().unwrap();
