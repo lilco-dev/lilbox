@@ -1,5 +1,6 @@
 use std::env;
 use std::io::IsTerminal;
+use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::Local;
@@ -34,6 +35,9 @@ pub(crate) struct NewOptions {
     /// Running under `lilbox gateway`: connection hints print the remote
     /// (`ssh <host> <box>`) form, not the local CLI form.
     pub(crate) remote: bool,
+    /// Host directory mounted only by the local agent command. Not an SSH
+    /// gateway capability or a `new` CLI flag.
+    pub(crate) workspace: Option<PathBuf>,
 }
 
 /// How `cmd_new` should source the box image, in precedence order. Pure so the
@@ -87,7 +91,8 @@ pub(crate) async fn cmd_new(app: &App, args: NewArgs, opts: NewOptions) -> Resul
     let want_tailnet = wants_tailnet(
         args.tailnet,
         args.tailnet_tag.as_deref(),
-        config.tailscale.auto,
+        // Workspace VMs have host files mounted; don't auto-join the tailnet.
+        config.tailscale.auto.filter(|_| opts.workspace.is_none()),
     );
     let mut key_env = DEFAULT_AUTH_KEY_ENV.to_string();
     let mut minted_key: Option<String> = None;
@@ -239,7 +244,7 @@ pub(crate) async fn cmd_new(app: &App, args: NewArgs, opts: NewOptions) -> Resul
     if let Some(t) = &template {
         println!("    {:9} {}", dim("template"), t.name);
     }
-    let builder = configure_builder(SandboxSettings {
+    let mut builder = configure_builder(SandboxSettings {
         name: &name,
         image: &image,
         host_port,
@@ -249,6 +254,11 @@ pub(crate) async fn cmd_new(app: &App, args: NewArgs, opts: NewOptions) -> Resul
         idle_timeout: idle,
         volume: volume.as_deref(),
     });
+    if let Some(workspace) = &opts.workspace {
+        builder = builder
+            .workdir(super::agent::WORKSPACE)
+            .volume(super::agent::WORKSPACE, |m| m.bind(workspace));
+    }
 
     // Register termination handlers BEFORE the VM exists, so a (rare) signal
     // registration failure aborts here rather than orphaning a box. On the

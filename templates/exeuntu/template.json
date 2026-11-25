@@ -1,0 +1,5 @@
+{
+  "image": "ghcr.io/boldsoftware/exeuntu@sha256:db68f1a59f85531a8c278661e2a4d12be5d133d3a1bb5ba8d6b35d9704f325a9",
+  "memory": "2G",
+  "description": "exe.dev’s Ubuntu development image with Claude Code, Codex, Pi, and OpenCode preinstalled."
+}

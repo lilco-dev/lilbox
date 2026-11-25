@@ -8,7 +8,7 @@ set -eu
 
 LILBOX_BIN=${LILBOX_BIN:-lilbox}
 AGENT=${LILBOX_AGENT_CMD:-claude}
-IMAGE=${LILBOX_IMAGE:-python}
+IMAGE=${LILBOX_IMAGE:-}
 
 # hd-<slug>-<6 hex of sha256(canonical path)> — the same name the old herdr
 # plugin derived, so its boxes are reused rather than orphaned. The hash keeps
@@ -38,7 +38,11 @@ running) ;;
 		exit 1
 	}
 	echo "booting $name for $path ..."
-	"$LILBOX_BIN" agent "$name" --workspace "$path" --image "$IMAGE"
+	set -- agent "$AGENT" --prepare --name "$name" --workspace "$path"
+	if [ -n "$IMAGE" ]; then
+		set -- "$@" --image "$IMAGE"
+	fi
+	"$LILBOX_BIN" "$@"
 	;;
 *)
 	echo "starting $name (was $status) ..."
@@ -48,4 +52,4 @@ esac
 
 # `lilbox attach` is a raw PTY bridge to the guest, so the agent's OSC 7501
 # escapes reach the core. The agent command travels as a positional arg.
-exec "$LILBOX_BIN" attach "$name" -- sh -lc 'cd /workspace 2>/dev/null || true; exec "$1"' sh "$AGENT"
+exec "$LILBOX_BIN" attach "$name" -- sh -lc 'cd /workspace && exec "$1"' sh "$AGENT"

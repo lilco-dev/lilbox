@@ -124,6 +124,8 @@ fn agent_entrypoint_creates_box_then_attaches_agent() {
         .current_dir(&work)
         .env("PATH", &path_with_stub)
         .env("HOME", &home)
+        .env("LILBOX_AGENT_CMD", "pi")
+        .env_remove("LILBOX_IMAGE")
         .status()
         .unwrap();
     assert!(status.success());
@@ -132,22 +134,23 @@ fn agent_entrypoint_creates_box_then_attaches_agent() {
     // One recorded invocation after another, args NUL-separated.
     let flat: Vec<&str> = raw.trim_end_matches('\0').split('\0').collect();
     let agent_at = flat.iter().position(|a| *a == "agent").unwrap();
+    let attach_at = flat.iter().position(|a| *a == "attach").unwrap();
     assert_eq!(
-        &flat[agent_at..agent_at + 6],
+        &flat[agent_at..attach_at],
         [
             "agent",
+            "pi",
+            "--prepare",
+            "--name",
             name.as_str(),
             "--workspace",
             work.to_str().unwrap(),
-            "--image",
-            "python"
         ]
     );
-    let attach_at = flat.iter().position(|a| *a == "attach").unwrap();
     assert_eq!(&flat[attach_at..attach_at + 2], ["attach", name.as_str()]);
     assert!(
-        flat[attach_at..].windows(2).any(|w| w == ["sh", "claude"]),
-        "attach must exec the default agent: {flat:?}"
+        flat[attach_at..].windows(2).any(|w| w == ["sh", "pi"]),
+        "attach must exec the selected agent: {flat:?}"
     );
 
     let _ = fs::remove_dir_all(home);

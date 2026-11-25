@@ -248,6 +248,33 @@ fn attach_uses_the_local_runtime_even_for_tailnet_boxes() {
 }
 
 #[test]
+fn exeuntu_template_is_listed() {
+    let home = temp_home("exeuntu-template");
+    let output = lilbox_cmd(&home).arg("templates").output().unwrap();
+    let _ = fs::remove_dir_all(&home);
+    assert!(output.status.success(), "{output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("exeuntu"));
+}
+
+#[test]
+fn agent_selects_claude_or_pi_and_validates_the_workspace_before_boot() {
+    let home = temp_home("agent-workspace");
+    for agent in ["claude", "pi"] {
+        let output = lilbox_cmd(&home)
+            .args(["agent", agent, "--prepare", "--workspace"])
+            .arg(home.join("missing"))
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{output:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("workspace not found"),
+            "{output:?}"
+        );
+    }
+    let _ = fs::remove_dir_all(&home);
+}
+
+#[test]
 fn completions_is_discoverable_in_help() {
     let home = temp_home("completions-help");
     let output = lilbox_cmd(&home).arg("--help").output().unwrap();
