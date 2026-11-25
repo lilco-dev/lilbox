@@ -46,6 +46,6 @@ running) ;;
 	;;
 esac
 
-# `lilbox ssh` is a raw PTY bridge to the guest, so the agent's OSC 7501
+# `lilbox attach` is a raw PTY bridge to the guest, so the agent's OSC 7501
 # escapes reach the core. The agent command travels as a positional arg.
-exec "$LILBOX_BIN" ssh "$name" -- sh -lc 'cd /workspace 2>/dev/null || true; exec "$1"' sh "$AGENT"
+exec "$LILBOX_BIN" attach "$name" -- sh -lc 'cd /workspace 2>/dev/null || true; exec "$1"' sh "$AGENT"

@@ -202,7 +202,7 @@ fn route_shell(
         ]);
     }
     if has_box(username) {
-        return Ok(vec!["ssh".to_string(), username.to_string()]);
+        return Ok(vec!["attach".to_string(), username.to_string()]);
     }
     Err(format!(
         "no box named '{username}' — ssh <box>@<host> to attach, ssh new@<host> or new+<name>@<host> to create, ssh <host> ls to list"
@@ -604,7 +604,7 @@ mod tests {
     #[test]
     fn shell_routes_box_name_to_attach() {
         let argv = route_shell("web", &|name| name == "web").unwrap();
-        assert_eq!(argv, ["ssh", "web"]);
+        assert_eq!(argv, ["attach", "web"]);
     }
 
     #[test]
@@ -633,7 +633,7 @@ mod tests {
     #[test]
     fn exec_allowlists_and_rewrites_direct_attach() {
         let argv = route_exec("web -- uname -a", &|name| name == "web", false).unwrap();
-        assert_eq!(argv, ["ssh", "web", "--", "uname", "-a"]);
+        assert_eq!(argv, ["attach", "web", "--", "uname", "-a"]);
     }
 
     #[test]

@@ -32,7 +32,7 @@ then pastes the task into its stdin. The entrypoint:
 2. Boots the box if it's missing (`lilbox agent --workspace <path>` — the
    directory is bind-mounted at `/workspace`), starts it if it's stopped, and
    recreates it if its record is stale (`gone`).
-3. `exec lilbox ssh <box> -- sh -lc 'cd /workspace; exec <agent>'` — a raw PTY
+3. `exec lilbox attach <box> -- sh -lc 'cd /workspace; exec <agent>'` — a raw PTY
    bridge, so the agent's OSC 7501 escapes reach the hc core and the pasted
    task reaches the agent.
 
