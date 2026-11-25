@@ -209,11 +209,64 @@ pub(crate) async fn ssh(app: &App, args: ExecArgs) -> Result<i32> {
         return Ok(status.code().unwrap_or(1));
     }
 
+    // microsandbox's interactive attach re-opens stdin's tty by path to get an
+    // independent nonblocking fd. Under Tailscale SSH the pty slave stays
+    // root-owned (mode 600), so that open fails with EACCES. Re-exec under a
+    // fresh script(1) pty — allocated as our user — so the re-open works.
+    if args.cmd.is_empty() && stdin_tty_reopen_blocked() {
+        return reexec_under_pty_shim(&args.name);
+    }
+
     let sandbox = connect_box(app, &args.name, true).await?;
     if args.cmd.is_empty() {
         return Ok(sandbox.attach_shell().await?);
     }
     run_guest(&sandbox, &args.cmd, None, &[]).await
+}
+
+/// True when stdin is a tty we cannot re-open by path (e.g. a Tailscale SSH
+/// session pty). Non-tty stdin is fine — the attach only re-opens terminals.
+#[cfg(unix)]
+fn stdin_tty_reopen_blocked() -> bool {
+    use std::os::fd::AsRawFd;
+    if std::env::var_os("LILBOX_PTY_SHIM").is_some() {
+        return false; // already re-exec'd under the shim; never loop
+    }
+    if !io::stdin().is_terminal() {
+        return false;
+    }
+    let mut buf = [0u8; 1024];
+    let rc =
+        unsafe { libc::ttyname_r(io::stdin().as_raw_fd(), buf.as_mut_ptr().cast(), buf.len()) };
+    if rc != 0 {
+        return false; // can't resolve; let the attach surface its own error
+    }
+    let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+    let Ok(path) = std::str::from_utf8(&buf[..end]) else {
+        return false;
+    };
+    std::fs::File::open(path).is_err()
+}
+
+/// Re-run `lilbox ssh <name>` under script(1), which allocates a pty owned by
+/// our user. SHELL must point at a real shell: under the login-shell gateway
+/// deployment the user's login shell *is* lilbox, and script(1) spawns $SHELL.
+#[cfg(unix)]
+fn reexec_under_pty_shim(name: &str) -> Result<i32> {
+    let exe = std::env::current_exe().context("resolve current exe for the pty shim")?;
+    let quoted = shlex::try_quote(name).context("box name is not shell-quotable")?;
+    let inner = format!("{} ssh {}", exe.display(), quoted);
+    #[cfg(target_os = "macos")]
+    let argv = ["-q", "/dev/null", &inner];
+    #[cfg(not(target_os = "macos"))]
+    let argv = ["-qefc", &inner, "/dev/null"];
+    let status = ProcessCommand::new("script")
+        .args(argv)
+        .env("SHELL", "/bin/sh")
+        .env("LILBOX_PTY_SHIM", "1")
+        .status()
+        .context("could not run 'script' (util-linux) for the pty shim")?;
+    Ok(status.code().unwrap_or(1))
 }
 
 pub(crate) async fn run(app: &App, args: RunArgs) -> Result<i32> {
@@ -289,5 +342,22 @@ pub(crate) async fn stop_and_remove(name: &str) -> Result<()> {
     match Sandbox::remove(name).await {
         Ok(()) | Err(MicrosandboxError::SandboxNotFound(_)) => Ok(()),
         Err(err) => Err(err).with_context(|| format!("could not remove '{name}'")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn pty_shim_not_triggered_without_terminal() {
+        // Test harness stdin is not a tty, so the shim must stay off.
+        assert!(!super::stdin_tty_reopen_blocked());
+    }
+
+    #[test]
+    fn pty_shim_env_guard_wins() {
+        // The re-exec'd child must never re-trigger the shim.
+        unsafe { std::env::set_var("LILBOX_PTY_SHIM", "1") };
+        assert!(!super::stdin_tty_reopen_blocked());
+        unsafe { std::env::remove_var("LILBOX_PTY_SHIM") };
     }
 }
