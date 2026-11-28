@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 
 use crate::cli::HcCommand;
 
@@ -10,12 +10,13 @@ use crate::cli::HcCommand;
 /// on PATH.
 const AGENT_SCRIPT: &str = include_str!("../../contrib/hc/bin/lilbox-hc-agent");
 
-/// Local-flavor template body; `{command}` is replaced with the installed
+/// Local-flavor template body; `{env}` is replaced with any baked
+/// `KEY=value ` prefixes (--image/--agent) and `{command}` with the installed
 /// script path. Kept in sync with contrib/hc/templates/lilbox-agent.md (the
 /// review copy).
 const TEMPLATE: &str = "---
 description: Coding agent inside a lilbox microVM for the current directory — one box per path, KVM-isolated, real working/blocked/done state over OSC 7501
-command: {command}
+command: {env}{command}
 ---
 
 Run a coding agent inside a lilbox microVM bound to the current directory.
@@ -28,7 +29,7 @@ Requires `lilbox` (KVM host) and `jq`. Config via `LILBOX_BIN`,
 /// sync with contrib/hc/templates/lilbox-remote.md (the review copy).
 const REMOTE_TEMPLATE: &str = "---
 description: Coding agent inside a lilbox microVM on a remote gateway host — one box per directory, no local KVM needed, real working/blocked/done state over OSC 7501
-command: LILBOX_SSH_HOST={host} {command}
+command: {env}{command}
 ---
 
 Run a coding agent inside a lilbox microVM on {host} (the lilbox SSH
@@ -47,11 +48,37 @@ fn xdg_dir(var: &str, fallback: impl FnOnce(&std::path::Path) -> PathBuf) -> Res
 
 pub(crate) fn cmd_hc(command: HcCommand) -> Result<i32> {
     match command {
-        HcCommand::Install { remote_host } => install(remote_host.as_deref()),
+        HcCommand::Install {
+            remote_host,
+            image,
+            agent,
+        } => install(remote_host.as_deref(), image.as_deref(), agent.as_deref()),
     }
 }
 
-fn install(remote_host: Option<&str>) -> Result<i32> {
+/// `KEY=value ` prefixes baked into the templates' command lines, in a fixed
+/// order so re-installs are stable. Values become part of a shell command
+/// line the hc core runs, so anything with whitespace or quoting is rejected.
+fn env_prefix(pairs: &[(&str, Option<&str>)]) -> Result<String> {
+    let mut prefix = String::new();
+    for (key, value) in pairs {
+        let Some(value) = value else { continue };
+        if value.is_empty()
+            || !value
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "@._/:=+-".contains(c))
+        {
+            bail!(
+                "--{} value '{value}' is not shell-safe ([A-Za-z0-9@._/:=+-]+)",
+                key.to_lowercase()
+            );
+        }
+        prefix.push_str(&format!("{key}={value} "));
+    }
+    Ok(prefix)
+}
+
+fn install(remote_host: Option<&str>, image: Option<&str>, agent: Option<&str>) -> Result<i32> {
     let script_dir = xdg_dir("XDG_DATA_HOME", |home| home.join(".local/share"))?.join("lilbox/hc");
     let template_dir =
         xdg_dir("XDG_CONFIG_HOME", |home| home.join(".config"))?.join("herdr-core/templates");
@@ -71,8 +98,16 @@ fn install(remote_host: Option<&str>) -> Result<i32> {
     }
 
     let script = script_path.to_string_lossy();
+    let local_env = env_prefix(&[("LILBOX_IMAGE", image), ("LILBOX_AGENT_CMD", agent)])?;
+    let remote_env = env_prefix(&[
+        ("LILBOX_SSH_HOST", remote_host),
+        ("LILBOX_IMAGE", image),
+        ("LILBOX_AGENT_CMD", agent),
+    ])?;
     let template_path = template_dir.join("lilbox-agent.md");
-    let body = TEMPLATE.replace("{command}", &script);
+    let body = TEMPLATE
+        .replace("{env}", &local_env)
+        .replace("{command}", &script);
     fs::write(&template_path, body)
         .with_context(|| format!("could not write {}", template_path.display()))?;
 
@@ -85,6 +120,7 @@ fn install(remote_host: Option<&str>) -> Result<i32> {
         Some(host) => {
             let body = REMOTE_TEMPLATE
                 .replace("{host}", host)
+                .replace("{env}", &remote_env)
                 .replace("{command}", &script);
             fs::write(&remote_path, body)
                 .with_context(|| format!("could not write {}", remote_path.display()))?;
@@ -120,7 +156,9 @@ mod tests {
     fn template_references_script_only_via_command_line() {
         // The hc core execs `command:` verbatim; any other path reference in
         // the body would be documentation drift.
-        let body = TEMPLATE.replace("{command}", "/x/lilbox-hc-agent");
+        let body = TEMPLATE
+            .replace("{env}", "")
+            .replace("{command}", "/x/lilbox-hc-agent");
         assert!(body.contains("command: /x/lilbox-hc-agent"));
         assert!(
             !body
@@ -131,11 +169,30 @@ mod tests {
 
     #[test]
     fn remote_template_carries_host_env_prefix() {
+        let env = env_prefix(&[
+            ("LILBOX_SSH_HOST", Some("lilbox@example.com")),
+            ("LILBOX_IMAGE", Some("ghcr.io/boldsoftware/exeuntu")),
+            ("LILBOX_AGENT_CMD", Some("pi")),
+        ])
+        .unwrap();
         let body = REMOTE_TEMPLATE
             .replace("{host}", "lilbox@example.com")
+            .replace("{env}", &env)
             .replace("{command}", "/x/lilbox-hc-agent");
-        assert!(body.contains("command: LILBOX_SSH_HOST=lilbox@example.com /x/lilbox-hc-agent"));
+        assert!(body.contains(
+            "command: LILBOX_SSH_HOST=lilbox@example.com \
+             LILBOX_IMAGE=ghcr.io/boldsoftware/exeuntu LILBOX_AGENT_CMD=pi /x/lilbox-hc-agent"
+        ));
         assert!(!body.contains("{host}"));
+        assert!(!body.contains("{env}"));
         assert!(!body.contains("{command}"));
+    }
+
+    #[test]
+    fn env_prefix_rejects_shell_metacharacters() {
+        assert!(env_prefix(&[("LILBOX_AGENT_CMD", Some("pi; rm -rf /"))]).is_err());
+        assert!(env_prefix(&[("LILBOX_AGENT_CMD", Some("has space"))]).is_err());
+        assert!(env_prefix(&[("LILBOX_AGENT_CMD", Some(""))]).is_err());
+        assert_eq!(env_prefix(&[("LILBOX_AGENT_CMD", None)]).unwrap(), "");
     }
 }

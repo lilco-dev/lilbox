@@ -391,6 +391,15 @@ pub(crate) enum HcCommand {
         /// remote template flavor.
         #[arg(long, value_name = "USER@HOST")]
         remote_host: Option<String>,
+        /// Image for newly created boxes, baked into the templates as
+        /// LILBOX_IMAGE (e.g. ghcr.io/boldsoftware/exeuntu, which ships pi,
+        /// claude, codex, and opencode preinstalled).
+        #[arg(long)]
+        image: Option<String>,
+        /// Agent command exec'd inside the box, baked into the templates as
+        /// LILBOX_AGENT_CMD (default claude).
+        #[arg(long)]
+        agent: Option<String>,
     },
 }
 

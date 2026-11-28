@@ -69,12 +69,26 @@ running) ;;
 esac
 
 if [ -n "$HOST" ]; then
-	# Gateway boxes aren't provisioned by `lilbox agent`, so install the agent
-	# here (idempotent; persists in the box's home volume). The script travels
-	# base64-encoded: it crosses two ssh command-line joins, and base64 has no
-	# characters either side can mangle.
-	install_b64=$(printf '%s' 'command -v claude >/dev/null 2>&1 || { command -v curl >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq curl; } >/dev/null 2>&1; curl -fsSL https://claude.ai/install.sh | bash >/dev/null 2>&1; ln -sf "$HOME/.local/bin/claude" /usr/local/bin/claude 2>/dev/null || true; }' | base64 -w0)
-	ssh -o BatchMode=yes -T "$HOST" "ssh $name -- sh -c 'echo $install_b64 | base64 -d | sh'"
+	# Gateway boxes aren't provisioned by `lilbox agent`, so make sure the
+	# agent binary exists (persists in the box's home volume). Only claude has
+	# a known installer here; images like ghcr.io/boldsoftware/exeuntu ship pi
+	# and friends preinstalled, so the probe usually short-circuits.
+	agent_bin=${AGENT%% *}
+	if ! ssh -o BatchMode=yes -T "$HOST" "ssh $name -- command -v $agent_bin" >/dev/null 2>&1; then
+		case $agent_bin in
+		claude)
+			# The install script travels base64-encoded: it crosses two ssh
+			# command-line joins, and base64 has no characters either side can
+			# mangle.
+			install_b64=$(printf '%s' 'command -v curl >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq curl; } >/dev/null 2>&1; curl -fsSL https://claude.ai/install.sh | bash >/dev/null 2>&1; ln -sf "$HOME/.local/bin/claude" /usr/local/bin/claude 2>/dev/null || true' | base64 -w0)
+			ssh -o BatchMode=yes -T "$HOST" "ssh $name -- sh -c 'echo $install_b64 | base64 -d | sh'"
+			;;
+		*)
+			echo "warning: '$agent_bin' not found in box $name and no installer is known;" >&2
+			echo "use an image that ships it (e.g. LILBOX_IMAGE=ghcr.io/boldsoftware/exeuntu)" >&2
+			;;
+		esac
+	fi
 	# Remote boxes have no /workspace mount; the agent starts in its home dir.
 	agent_b64=$(printf 'cd /workspace 2>/dev/null || true; exec %s' "$AGENT" | base64 -w0)
 	exec ssh -tt "$HOST" "attach $name -- sh -c 'echo $agent_b64 | base64 -d | sh'"

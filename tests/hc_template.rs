@@ -98,6 +98,49 @@ fn hc_install_remote_host_writes_remote_template() {
     let _ = fs::remove_dir_all(home);
 }
 
+#[test]
+fn hc_install_bakes_image_and_agent_into_both_templates() {
+    let home = temp_home("hc-install-flags");
+    let status = lilbox_cmd(&home)
+        .args([
+            "hc",
+            "install",
+            "--remote-host",
+            "lilbox@example.com",
+            "--image",
+            "ghcr.io/boldsoftware/exeuntu",
+            "--agent",
+            "pi",
+        ])
+        .status()
+        .unwrap();
+    assert!(status.success());
+
+    let script = home.join(".local/share/lilbox/hc/lilbox-hc-agent");
+    let local =
+        fs::read_to_string(home.join(".config/herdr-core/templates/lilbox-agent.md")).unwrap();
+    assert!(local.contains(&format!(
+        "command: LILBOX_IMAGE=ghcr.io/boldsoftware/exeuntu LILBOX_AGENT_CMD=pi {}",
+        script.display()
+    )));
+    let remote =
+        fs::read_to_string(home.join(".config/herdr-core/templates/lilbox-remote.md")).unwrap();
+    assert!(remote.contains(&format!(
+        "command: LILBOX_SSH_HOST=lilbox@example.com \
+         LILBOX_IMAGE=ghcr.io/boldsoftware/exeuntu LILBOX_AGENT_CMD=pi {}",
+        script.display()
+    )));
+
+    // Shell metacharacters in a value must fail, not write a broken template.
+    let status = lilbox_cmd(&home)
+        .args(["hc", "install", "--agent", "pi; rm -rf /"])
+        .status()
+        .unwrap();
+    assert!(!status.success());
+
+    let _ = fs::remove_dir_all(home);
+}
+
 /// Stub `lilbox` that records its argv (NUL-separated) and answers `ls --json`
 /// with no boxes, so the entrypoint takes the create-and-attach path.
 fn stub_lilbox(bin_dir: &Path, log: &Path) {
