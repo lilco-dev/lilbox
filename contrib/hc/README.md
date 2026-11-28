@@ -12,7 +12,14 @@ screen-scraping. This directory replaces the retired `contrib/herdr` plugin.
 ```bash
 lilbox hc install                                       # local flavor
 lilbox hc install --remote-host lilbox@<box-host>       # + remote flavor
+lilbox hc install --remote-host lilbox@<box-host> \
+  --image ghcr.io/boldsoftware/exeuntu --agent pi       # pi in an exeuntu box
 ```
+
+`--image` and `--agent` bake `LILBOX_IMAGE` / `LILBOX_AGENT_CMD` into the
+templates' command lines. [exeuntu](https://github.com/boldsoftware/exeuntu)
+(exe.dev's base image) ships pi, claude, codex, and opencode preinstalled,
+which skips the remote flavor's runtime agent install entirely.
 
 Then, from any directory you want to box up:
 
@@ -46,9 +53,9 @@ then pastes the task into its stdin. The entrypoint:
    task reaches the agent.
 
 The remote flavor swaps those steps for gateway calls: `ssh $LILBOX_SSH_HOST
-new/ls/start/rm` for lifecycle, an idempotent agent install exec (persists in
-the box's home volume), and `ssh -tt $LILBOX_SSH_HOST "attach <box> -- ..."`
-for the PTY. Remote boxes have no `/workspace` mount — the agent works on a
+new/ls/start/rm` for lifecycle, an agent-presence probe (installing claude if
+it's the agent and missing; other agents must ship in the image), and
+`ssh -tt $LILBOX_SSH_HOST "attach <box> -- ..."` for the PTY. Remote boxes have no `/workspace` mount — the agent works on a
 checkout inside the box (clone it there, exe.dev-style) — and authenticate
 once per box (`/login` persists in the home volume); the gateway has no
 credential-injection path.
