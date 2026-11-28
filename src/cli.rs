@@ -383,8 +383,15 @@ pub(crate) struct AgentArgs {
 #[derive(Subcommand)]
 pub(crate) enum HcCommand {
     /// Install the `lilbox-agent` template for herdr-core (hc): one microVM
-    /// per directory, coding agent inside, real OSC 7501 agent state.
-    Install,
+    /// per directory, coding agent inside, real OSC 7501 agent state. With
+    /// --remote-host, also install `lilbox-remote`, which boots the box on a
+    /// lilbox SSH gateway host instead of locally.
+    Install {
+        /// SSH target of a lilbox gateway host (e.g. lilbox@box-host) for the
+        /// remote template flavor.
+        #[arg(long, value_name = "USER@HOST")]
+        remote_host: Option<String>,
+    },
 }
 
 #[derive(Args)]
