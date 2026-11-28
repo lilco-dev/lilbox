@@ -658,6 +658,11 @@ lilbox hc install          # once per machine that runs the hc core
 hc run lilbox-agent "fix the failing tests"   # from the directory to box up
 ```
 
+Add `--remote-host lilbox@<box-host>` to the install and `hc run lilbox-remote
+"…"` boots the box on a [lilbox SSH gateway](#remote-provisioning-over-ssh-lilbox-gateway)
+host instead — no local KVM or lilbox install needed, so any machine with
+gateway access can drive box-agents.
+
 The template ([`contrib/hc/`](contrib/hc/)) derives a box name from the current
 directory (`hd-<slug>-<hash>`, same as the retired herdr plugin, so old boxes
 are reused), boots it with the directory bind-mounted at `/workspace` if it's

@@ -1,18 +1,25 @@
 #!/bin/sh
 # lilbox herdr-core template entrypoint: one microVM per working directory,
-# coding agent exec'd inside. Started by `hc run lilbox-agent [task]`; the task
-# is pasted into this terminal's stdin and reaches the agent through the
-# attach PTY. Agent state (working/blocked/done) is OSC 7501 emitted by the
-# agent, which the attach bridge passes through byte-transparently.
+# coding agent exec'd inside. Two flavors, picked by LILBOX_SSH_HOST:
+#
+#   unset  local box on this host (`lilbox agent` + attach)
+#   set    remote box over the lilbox SSH gateway (`ssh user@host`), no local
+#          KVM or lilbox install needed — `hc run lilbox-remote [task]`
+#
+# Started by hc; the task is pasted into this terminal's stdin and reaches the
+# agent through the attach PTY. Agent state (working/blocked/done) is OSC 7501
+# from the agent, which the attach bridge and ssh both pass through
+# byte-transparently.
 set -eu
 
 LILBOX_BIN=${LILBOX_BIN:-lilbox}
 AGENT=${LILBOX_AGENT_CMD:-claude}
 IMAGE=${LILBOX_IMAGE:-python}
+HOST=${LILBOX_SSH_HOST:-}
 
-# hd-<slug>-<6 hex of sha256(canonical path)> — the same name the old herdr
-# plugin derived, so its boxes are reused rather than orphaned. The hash keeps
-# two worktrees that share a basename from colliding onto each other's box.
+# hd-<slug>-<6 hex of sha256(canonical path)> — same name for both flavors, so
+# a directory maps to one box per flavor and same-basename worktrees never
+# collide.
 path=$(realpath -m -- "$PWD")
 slug=$(printf '%s' "${path##*/}" |
 	tr '[:upper:]' '[:lower:]' |
@@ -22,29 +29,56 @@ slug=$(printf '%.16s' "${slug:-box}")
 hash=$(printf '%s' "$path" | sha256sum | cut -c1-6)
 name="hd-$slug-$hash"
 
-# "" = no box, "running" = live, "gone" = stale row (VM lost), else stopped.
-status=$("$LILBOX_BIN" ls --json 2>/dev/null |
+# Run a lilbox command locally or through the gateway. Gateway args are joined
+# by ssh into one command line, so only simple tokens may pass through here.
+lilbox_cmd() {
+	if [ -n "$HOST" ]; then
+		ssh -o BatchMode=yes -T "$HOST" "$@"
+	else
+		"$LILBOX_BIN" "$@"
+	fi
+}
+
+# "" = no box, "running" = live, "gone" = stale record, else stopped.
+status=$(lilbox_cmd ls --json 2>/dev/null |
 	jq -r --arg n "$name" '.[] | select(.name == $n) | .status' 2>/dev/null |
 	head -n1)
 case $status in
 running) ;;
 '' | gone)
 	if [ -n "$status" ]; then
-		# Stale row: a fresh `lilbox agent` would bail on the name.
-		"$LILBOX_BIN" rm "$name" || true
+		# Stale record: a fresh create would bail on the name.
+		lilbox_cmd rm "$name" || true
 	fi
-	[ -d "$path" ] || {
-		echo "lilbox-hc-agent: directory is gone: $path" >&2
-		exit 1
-	}
-	echo "booting $name for $path ..."
-	"$LILBOX_BIN" agent "$name" --workspace "$path" --image "$IMAGE"
+	if [ -n "$HOST" ]; then
+		echo "booting $name on $HOST ..."
+		lilbox_cmd new --image "$IMAGE" "$name"
+	else
+		[ -d "$path" ] || {
+			echo "lilbox-hc-agent: directory is gone: $path" >&2
+			exit 1
+		}
+		echo "booting $name for $path ..."
+		"$LILBOX_BIN" agent "$name" --workspace "$path" --image "$IMAGE"
+	fi
 	;;
 *)
 	echo "starting $name (was $status) ..."
-	"$LILBOX_BIN" start "$name"
+	lilbox_cmd start "$name"
 	;;
 esac
+
+if [ -n "$HOST" ]; then
+	# Gateway boxes aren't provisioned by `lilbox agent`, so install the agent
+	# here (idempotent; persists in the box's home volume). The script travels
+	# base64-encoded: it crosses two ssh command-line joins, and base64 has no
+	# characters either side can mangle.
+	install_b64=$(printf '%s' 'command -v claude >/dev/null 2>&1 || { command -v curl >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq curl; } >/dev/null 2>&1; curl -fsSL https://claude.ai/install.sh | bash >/dev/null 2>&1; ln -sf "$HOME/.local/bin/claude" /usr/local/bin/claude 2>/dev/null || true; }' | base64 -w0)
+	ssh -o BatchMode=yes -T "$HOST" "ssh $name -- sh -c 'echo $install_b64 | base64 -d | sh'"
+	# Remote boxes have no /workspace mount; the agent starts in its home dir.
+	agent_b64=$(printf 'cd /workspace 2>/dev/null || true; exec %s' "$AGENT" | base64 -w0)
+	exec ssh -tt "$HOST" "attach $name -- sh -c 'echo $agent_b64 | base64 -d | sh'"
+fi
 
 # `lilbox attach` is a raw PTY bridge to the guest, so the agent's OSC 7501
 # escapes reach the core. The agent command travels as a positional arg.
